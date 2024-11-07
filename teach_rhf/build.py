@@ -2,10 +2,21 @@ import os
 import subprocess
 import ctypes
 import shutil
+import platform
 
 # 设置库的路径
 lib_dir = "libcint/build"
-lib_path = os.path.join(lib_dir, "libcint.so")
+
+# 判断系统类型来设置库文件名
+system = platform.system()
+if system == "Linux":
+    lib_name = "libcint.so"
+elif system == "Darwin":  # macOS
+    lib_name = "libcint.dylib"
+else:
+    raise OSError("Unsupported operating system")
+
+lib_path = os.path.join(lib_dir, lib_name)
 
 
 def build_lib():
