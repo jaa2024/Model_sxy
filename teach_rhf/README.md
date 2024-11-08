@@ -2,7 +2,7 @@
 
 Here is the documentation for the code:
 
-his is an introductory task for new graduate students joining the research group. The task involves using the `gto` module of PySCF to construct a `mol` class, which leverages information from the `mol` class to call `libcint` for the computation of one- and two-electron integrals. The `RHF` class implements a basic Restricted Hartree-Fock (RHF) calculation, with a partial consideration of electron integral symmetries.
+This is an introductory task for new graduate students joining the research group. The task involves using the `gto` module of PySCF to construct a `mol` class, which leverages information from the `mol` class to call `libcint` for the computation of one- and two-electron integrals. The `RHF` class implements a basic Restricted Hartree-Fock (RHF) calculation, with a partial consideration of electron integral symmetries.
 
 The `build.py` script enables automatic compilation and linking with the `libcint.so` library. It only supports Linux and macOS systems (due to PySCF's compatibility).
 
