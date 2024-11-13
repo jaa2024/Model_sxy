@@ -1,0 +1,24 @@
+[
+  {
+    "name": "Clang 18",
+
+    "generator": "Ninja",
+
+    "compilers": {
+      "C": "/opt/homebrew/opt/llvm/bin/clang",
+      "CXX": "/opt/homebrew/opt/llvm/bin/clang++"
+    }
+  },
+
+  {
+    "name": "GCC 14",
+
+    "generator": "Ninja",
+
+    "compilers": {
+      "C": "/opt/homebrew/bin/gcc-14",
+      "CXX": "/opt/homebrew/bin/g++-14",
+      "Fortran": "/opt/homebrew/bin/gfortran-14"
+    }
+  }
+]
