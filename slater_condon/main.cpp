@@ -8,8 +8,10 @@
 #include <unsupported/Eigen/CXX11/Tensor>
 #include <vector>
 
+// Class to handle quantum chemistry integrals (one and two electron integrals)
 class Integral {
 public:
+    // Constructor that reads integral data from a file
     Integral(const std::string& filename)
     {
         norb = 0;
@@ -20,12 +22,14 @@ public:
             std::vector<std::string> lines;
             std::string line;
 
+            // Read all lines from file
             while (std::getline(file, line)) {
                 lines.emplace_back(line);
             }
 
             file.close();
 
+            // Parse the number of orbitals from first line
             std::istringstream iss(lines[0]);
             std::string part;
             std::vector<std::string> parts;
@@ -34,11 +38,14 @@ public:
             }
             norb = std::stoi(parts[2].substr(0, parts[2].length() - 1));
 
+            // Initialize one-electron integral matrix
             int1e = Eigen::MatrixXd::Zero(norb, norb);
 
+            // Initialize two-electron integral tensor
             int2e = Eigen::Tensor<double, 4>(norb, norb, norb, norb);
             int2e.setZero();
 
+            // Parse integral values from file
             for (size_t i = 4; i < lines.size(); ++i) {
                 std::istringstream iss2(lines[i]);
                 std::vector<std::string> parts2;
@@ -52,16 +59,19 @@ public:
                 int r = std::stoi(parts2[3]) - 1;
                 int s = std::stoi(parts2[4]) - 1;
 
+                // Handle different types of integrals
                 if (r == -1 && s == -1) {
                     if (p == -1 && q == -1) {
-                        coreE = val;
+                        coreE = val; // Nuclear repulsion energy
                     }
                     else {
+                        // One-electron integrals
                         int1e(p, q) = val;
                         int1e(q, p) = val;
                     }
                 }
                 else {
+                    // Two-electron integrals with symmetry
                     int2e(p, q, r, s) = val;
                     int2e(p, q, s, r) = val;
                     int2e(q, p, r, s) = val;
@@ -78,21 +88,30 @@ public:
         }
     }
 
-    double h1e(int p, int q) const { return int1e(p, q); }
+    // Get one-electron integral value
+    auto h1e(int p, int q) const -> double { return int1e(p, q); }
 
-    double h2e(int p, int q, int r, int s) const { return int2e(p, q, r, s); }
+    // Get two-electron integral value
+    auto h2e(int p, int q, int r, int s) const -> double { return int2e(p, q, r, s); }
 
-    double getCoreE() const { return coreE; }
+    // Get nuclear repulsion energy
+    auto getCoreE() const -> double { return coreE; }
 
 private:
-    int norb;
-    double coreE;
-    Eigen::MatrixXd int1e;
-    Eigen::Tensor<double, 4> int2e;
+    int norb; // Number of orbitals
+    double coreE; // Nuclear repulsion energy
+    Eigen::MatrixXd int1e; // One-electron integrals
+    Eigen::Tensor<double, 4> int2e; // Two-electron integrals
 };
 
+// Class to represent Slater determinants
 class Det {
 public:
+    // Constructor that creates determinant from occupation string
+    // '0': empty orbital
+    // 'u': alpha electron
+    // 'd': beta electron
+    // '2': doubly occupied orbital
     Det(const std::string& str)
     {
         alpha.clear();
@@ -129,15 +148,14 @@ public:
         norb = alpha.size();
     }
 
-    int getNa() const { return na; }
+    // Getters for various properties
+    auto getNa() const -> int { return na; }
+    auto getNb() const -> int { return nb; }
+    auto getNelec() const -> int { return nelec; }
+    auto getNorb() const -> int { return norb; }
 
-    int getNb() const { return nb; }
-
-    int getNelec() const { return nelec; }
-
-    int getNorb() const { return norb; }
-
-    std::string to_string() const
+    // Convert determinant to string representation
+    auto to_string() const -> std::string
     {
         std::stringstream ss;
         for (auto i = 0; i < norb; ++i) {
@@ -157,7 +175,8 @@ public:
         return ss.str();
     }
 
-    int count_elec(int p, int q, bool alpha = true) const
+    // Count electrons between orbital p and q
+    auto count_elec(int p, int q, bool alpha = true) const -> int
     {
         if (p > q) {
             std::swap(p, q);
@@ -175,6 +194,7 @@ public:
         return count;
     }
 
+    // Compare two occupation lists and return occupied and virtual orbitals
     auto compare(const std::vector<int>& list1, const std::vector<int>& list2)
         const -> std::tuple<std::vector<int>, std::vector<int>>
     {
@@ -195,10 +215,13 @@ public:
         return std::make_tuple(occ, vir);
     }
 
-    double Hii(const Integral& integral) const
+    // Calculate diagonal matrix element (Hii)
+    auto Hii(const Integral& integral) const -> double
     {
         double val { 0 };
+        // Sum over all orbitals
         for (int p = 0; p < norb; ++p) {
+            // Contribution from alpha electrons
             if (alpha[p] == 1) {
                 val += integral.h1e(p, p);
 
@@ -211,6 +234,7 @@ public:
                     }
                 }
             }
+            // Contribution from beta electrons
             if (beta[p] == 1) {
                 val += integral.h1e(p, p);
 
@@ -227,11 +251,13 @@ public:
         return val;
     }
 
+    // Calculate sign based on number of electrons
     auto sign(int nelec) const -> double { return std::pow(-1, nelec); }
 
+    // Calculate off-diagonal matrix element (Hij)
     auto Hij(const Det& det, const Integral& integral) const -> double
     {
-
+        // Compare alpha and beta occupations between determinants
         auto [occa, vira] = compare(alpha, det.alpha);
         auto [occb, virb] = compare(beta, det.beta);
 
@@ -239,11 +265,12 @@ public:
         int ndiffb = occb.size();
         int ndiff = ndiffa + ndiffb;
 
+        // Slater-Condon rules implementation
         if (ndiff > 2) {
             return 0;
         }
-        else if (ndiff == 1) {
-            if (ndiffa == 1) {
+        else if (ndiff == 1) { // Single excitation
+            if (ndiffa == 1) { // Alpha excitation
                 int p = occa[0];
                 int q = vira[0];
                 double h1 = integral.h1e(p, q);
@@ -259,7 +286,7 @@ public:
 
                 return sign(count_elec(p, q, true)) * (h1 + h2);
             }
-            else if (ndiffb == 1) {
+            else if (ndiffb == 1) { // Beta excitation
                 int p = occb[0];
                 int q = virb[0];
                 double h1 = integral.h1e(p, q);
@@ -278,8 +305,8 @@ public:
                 return 0;
             }
         }
-        else if (ndiff == 2) {
-            if (ndiffa == 2) {
+        else if (ndiff == 2) { // Double excitation
+            if (ndiffa == 2) { // Double alpha excitation
                 int p = occa[0];
                 int r = occa[1];
                 int q = vira[0];
@@ -297,7 +324,7 @@ public:
 
                 return val;
             }
-            else if (ndiffb == 2) {
+            else if (ndiffb == 2) { // Double beta excitation
                 int p = occb[0];
                 int r = occb[1];
                 int q = virb[0];
@@ -315,7 +342,7 @@ public:
 
                 return val;
             }
-            else if (ndiffa == 1 && ndiffb == 1) {
+            else if (ndiffa == 1 && ndiffb == 1) { // Alpha-beta excitation
                 int p = occa[0];
                 int q = vira[0];
                 int r = occb[0];
@@ -335,14 +362,15 @@ public:
     }
 
 private:
-    std::vector<int> alpha;
-    std::vector<int> beta;
-    int na;
-    int nb;
-    int nelec;
-    int norb;
+    std::vector<int> alpha; // Alpha electron occupation
+    std::vector<int> beta; // Beta electron occupation
+    int na; // Number of alpha electrons
+    int nb; // Number of beta electrons
+    int nelec; // Total number of electrons
+    int norb; // Number of orbitals
 };
 
+// Read determinants from file
 auto readDets(const std::string& fileName) -> std::vector<Det>
 {
     std::vector<Det> dets;
@@ -360,7 +388,6 @@ auto readDets(const std::string& fileName) -> std::vector<Det>
 
     return dets;
 }
-
 auto readH(const std::string& fileName) -> Eigen::MatrixXd
 {
     std::ifstream file(fileName);
