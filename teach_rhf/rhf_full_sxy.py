@@ -227,13 +227,13 @@ class RHF:
         C_occ = C[:, : self.ndocc]
         return np.einsum("pi,qi->pq", C_occ, C_occ, optimize=True)
 
-    def get_energy_elec(self, F: npt.NDArray, D: npt.NDArray):
+    def get_energy_elec(self, F: npt.NDArray, D: npt.NDArray) -> float:
         return np.einsum("pq,pq->", (self.H + F), D, optimize=True)
 
-    def get_energy_tot(self, F: npt.NDArray, D: npt.NDArray):
+    def get_energy_tot(self, F: npt.NDArray, D: npt.NDArray) -> float:
         return self.get_energy_elec(F, D) + self.E_nn
 
-    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-8) -> float:
+    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-6) -> float:
         """Run the SCF procedure with precomputed integrals."""
         # Precompute all integrals before starting SCF
         self._compute_all_integrals()
