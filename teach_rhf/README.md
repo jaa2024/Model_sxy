@@ -1,3 +1,5 @@
+analysis
+
 # RHF code for teaching
 
 Here is the documentation for the code:
@@ -14,5 +16,4 @@ To run, use the following command:
 python rhf.py
 ```
 
-
-There still have unrestricted Hartree-Fock(UHF) and General Hartree-Fock(GHF) in `uhf.py` and `ghf.py`. They are very similar with `rhf.py`
+There still have unrestricted Hartree-Fock(UHF) and General Hartree-Fock(GHF) in `uhf.py` and `ghf.py`. They are very similar with `rhf.py` But using  `ghf` without `DIIS` and stabiity analysis is really danger!!!
