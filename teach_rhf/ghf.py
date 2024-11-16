@@ -220,7 +220,7 @@ class GHF:
     def build_init_guess(self) -> npt.NDArray:
         _, C = scipy.linalg.eigh(self.H, self.S)
         C_occ = C[:, : self.nelec]
-        return np.einsum("pi,qi->pq", C_occ, C_occ, optimize=True)
+        return np.einsum("pi,qi->pq", C_occ, C_occ, optimize=True) + 0.05
 
     def make_density(self, fock: npt.NDArray) -> npt.NDArray:
         # Solve eigenvalue problem
@@ -240,7 +240,6 @@ class GHF:
         Kaa = np.einsum("rs, prqs -> pq", dmaa, self.eri, optimize=True)
         Kbb = np.einsum("rs, prqs -> pq", dmbb, self.eri, optimize=True)
         Kab = np.einsum("rs, prqs -> pq", dmab, self.eri, optimize=True)
-
         return np.block([[J - Kaa, -Kab], [-Kab, J - Kbb]]) + self.H
 
     def get_energy_elec(self, F: npt.NDArray, D: npt.NDArray) -> float:
@@ -249,7 +248,7 @@ class GHF:
     def get_energy_tot(self, F: npt.NDArray, D: npt.NDArray) -> float:
         return self.get_energy_elec(F, D) + self.E_nn
 
-    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-6):
+    def kernel(self, max_iter: int = 1000, conv_tol: float = 1e-6):
         """Run the SCF procedure with precomputed integrals."""
         # Precompute all integrals before starting SCF
         self._compute_all_integrals()
@@ -283,6 +282,8 @@ class GHF:
             D = D_new
             E_old = E_total
 
+        print("\nSCF Converged!")
+        print(f"Final SCF energy: {E_old:.10f}")
         raise RuntimeError("SCF did not converge within maximum iterations")
 
 
@@ -292,8 +293,6 @@ def main():
 
     # Compare with PySCF
     mf_pyscf = scf.GHF(mol)
-    mf_pyscf.diis = False
-    mf_pyscf.init_guess = "hcore"
     E_pyscf = mf_pyscf.kernel()
     print(f"\nPySCF energy: {E_pyscf:.10f}")
 
