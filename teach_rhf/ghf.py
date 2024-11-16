@@ -31,7 +31,7 @@ _cint.CINTtot_cgto_spheric.argtypes = [
 ]
 
 
-class UHF:
+class GHF:
     def __init__(self, mol: gto.Mole):
         """Initialize RHF calculator with a PySCF Mole object."""
         self.mol = mol
@@ -40,6 +40,7 @@ class UHF:
         self.bas = mol._bas.astype(np.intc)
         self.env = mol._env.astype(np.double)
         self.nao = mol.nao_nr()
+        self.nso = 2 * self.nao
         self.nshls = len(self.bas)
         self.natm = len(self.atm)
         self.nalpha = mol.nelec[0]
@@ -211,75 +212,51 @@ class UHF:
                         )
 
         # Compute core Hamiltonian and orthogonalization matrix
+        self.S = scipy.linalg.block_diag(self.S, self.S)
         self.H = self.T + self.V
+        self.H = scipy.linalg.block_diag(self.H, self.H)
         print("Integral computation completed.")
 
-    def get_fock(
-        self, D: tuple[npt.NDArray, npt.NDArray]
-    ) -> tuple[npt.NDArray, npt.NDArray]:
-        """Build Fock matrices from density matrices using precomputed integrals."""
-        Da, Db = D
-        Fa = (
-            self.T
-            + self.V
-            + np.einsum("pqrs, rs -> pq", self.eri, Da)
-            + np.einsum("pqrs, rs -> pq", self.eri, Db)
-            - np.einsum("prqs, rs -> pq", self.eri, Da)
+    def build_init_guess(self) -> npt.NDArray:
+        _, C = scipy.linalg.eigh(self.H, self.S)
+        C_occ = C[:, : self.nelec]
+        return np.einsum("pi,qi->pq", C_occ, C_occ, optimize=True)
+
+    def make_density(self, fock: npt.NDArray) -> npt.NDArray:
+        # Solve eigenvalue problem
+        _, C = scipy.linalg.eigh(fock, self.S)
+        C_occ = C[:, : self.nelec]
+        return np.einsum("pi,qi->pq", C_occ, C_occ, optimize=True)
+
+    def get_fock(self, D: npt.NDArray) -> npt.NDArray:
+        nao = self.nao
+        dmaa = D[:nao, :nao]
+        dmab = D[:nao, nao:]
+        dmbb = D[nao:, nao:]
+
+        J = np.einsum("rs, pqrs -> pq", dmaa, self.eri, optimize=True) + np.einsum(
+            "rs, pqrs -> pq", dmbb, self.eri, optimize=True
         )
-        Fb = (
-            self.T
-            + self.V
-            + np.einsum("pqrs, rs -> pq", self.eri, Da)
-            + np.einsum("pqrs, rs -> pq", self.eri, Db)
-            - np.einsum("prqs, rs -> pq", self.eri, Db)
-        )
-        return Fa, Fb
+        Kaa = np.einsum("rs, prqs -> pq", dmaa, self.eri, optimize=True)
+        Kbb = np.einsum("rs, prqs -> pq", dmbb, self.eri, optimize=True)
+        Kab = np.einsum("rs, prqs -> pq", dmab, self.eri, optimize=True)
 
-    def make_density(
-        self, fock: tuple[npt.NDArray, npt.NDArray]
-    ) -> tuple[npt.NDArray, npt.NDArray]:
-        """Create new density matrices for alpha and beta components."""
-        Fa, Fb = fock
+        return np.block([[J - Kaa, -Kab], [-Kab, J - Kbb]]) + self.H
 
-        # Solve eigenvalue problems separately for alpha and beta
-        _, Ca = scipy.linalg.eigh(Fa, self.S)
-        _, Cb = scipy.linalg.eigh(Fb, self.S)
+    def get_energy_elec(self, F: npt.NDArray, D: npt.NDArray) -> float:
+        return np.einsum("pq,pq->", (self.H + F), D, optimize=True) / 2
 
-        # Form density matrices
-        Ca_occ = Ca[:, : self.nalpha]
-        Cb_occ = Cb[:, : self.nbeta]
-
-        Da = np.einsum("pi,qi->pq", Ca_occ, Ca_occ, optimize=True)
-        Db = np.einsum("pi,qi->pq", Cb_occ, Cb_occ, optimize=True)
-
-        return Da, Db
-
-    def get_energy_elec(
-        self, F: tuple[npt.NDArray, npt.NDArray], D: tuple[npt.NDArray, npt.NDArray]
-    ) -> float:
-        """Calculate electronic energy."""
-        Fa, Fb = F
-        Da, Db = D
-        return 0.5 * (
-            np.einsum("pq, pq ->", (Da + Db), self.H, optimize=True)
-            + np.einsum("pq, pq ->", Da, Fa, optimize=True)
-            + np.einsum("pq, pq ->", Db, Fb, optimize=True)
-        )
-
-    def get_energy_tot(
-        self, F: tuple[npt.NDArray, npt.NDArray], D: tuple[npt.NDArray, npt.NDArray]
-    ) -> float:
-        """Calculate total energy."""
+    def get_energy_tot(self, F: npt.NDArray, D: npt.NDArray) -> float:
         return self.get_energy_elec(F, D) + self.E_nn
 
-    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-6) -> float:
+    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-6):
         """Run the SCF procedure with precomputed integrals."""
         # Precompute all integrals before starting SCF
         self._compute_all_integrals()
 
         print("Starting SCF calculation...")
         # Initial guess using core Hamiltonian
-        D = self.make_density((self.H, self.H))
+        D = self.build_init_guess()
         E_old = 0.0
 
         for iter_num in range(max_iter):
@@ -291,9 +268,7 @@ class UHF:
 
             # Check convergence
             E_diff = abs(E_total - E_old)
-            D_diff = (
-                np.linalg.norm(D_new[0] - D[0]) + np.linalg.norm(D_new[1] - D[1])
-            ) / 2
+            D_diff = np.linalg.norm(D_new - D)
 
             print(
                 f"Iter {iter_num:3d}: E = {E_total:.10f}, "
@@ -316,12 +291,14 @@ def main():
     mol = gto.M(atom="O 0 0 0; O 0 0 1.2", basis="ccpvdz", spin=2)
 
     # Compare with PySCF
-    mf_pyscf = scf.UHF(mol)
+    mf_pyscf = scf.GHF(mol)
+    mf_pyscf.diis = False
+    mf_pyscf.init_guess = "hcore"
     E_pyscf = mf_pyscf.kernel()
     print(f"\nPySCF energy: {E_pyscf:.10f}")
 
     # Our implementation
-    mf = UHF(mol)
+    mf = GHF(mol)
     E_our = mf.kernel()
     print(f"Our energy:   {E_our:.10f}")
     print(f"Difference:   {abs(E_pyscf - E_our):.10f}")
