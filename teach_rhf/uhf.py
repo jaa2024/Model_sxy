@@ -172,7 +172,7 @@ class UHF:
                 for k in range(self.nshls):
                     dk = _cint.CINTcgto_spheric(k, self.bas)
                     z = _cint.CINTtot_cgto_spheric(self.bas, k)
-                    for l in range(k, self.nshls):
+                    for l in range(k, self.nshls):  # noqa: E741
                         dl = _cint.CINTcgto_spheric(l, self.bas)
                         w = _cint.CINTtot_cgto_spheric(self.bas, l)
 
@@ -187,7 +187,9 @@ class UHF:
                             self.env,
                             opt,
                         )
-                        self.eri[x : x + di, y : y + dj, z : z + dk, w : w + dl] = buf
+                        self.eri[x : x + di, y : y + dj, z : z + dk, w : w + dl] = (
+                            buf.transpose(0, 1, 2, 3)
+                        )
                         self.eri[y : y + dj, x : x + di, z : z + dk, w : w + dl] = (
                             buf.transpose(1, 0, 2, 3)
                         )
