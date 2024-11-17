@@ -1,9 +1,0 @@
-/home/yx/code/Model/teach_rhf/libcint/build/CMakeFiles/cint.dir
-/home/yx/code/Model/teach_rhf/libcint/build/CMakeFiles/package.dir
-/home/yx/code/Model/teach_rhf/libcint/build/CMakeFiles/package_source.dir
-/home/yx/code/Model/teach_rhf/libcint/build/CMakeFiles/edit_cache.dir
-/home/yx/code/Model/teach_rhf/libcint/build/CMakeFiles/rebuild_cache.dir
-/home/yx/code/Model/teach_rhf/libcint/build/CMakeFiles/list_install_components.dir
-/home/yx/code/Model/teach_rhf/libcint/build/CMakeFiles/install.dir
-/home/yx/code/Model/teach_rhf/libcint/build/CMakeFiles/install/local.dir
-/home/yx/code/Model/teach_rhf/libcint/build/CMakeFiles/install/strip.dir
