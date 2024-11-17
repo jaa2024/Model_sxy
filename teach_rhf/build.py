@@ -31,7 +31,21 @@ def build_lib():
 
         # 创建新的 build 目录并执行 CMake 和 Make
         os.makedirs(lib_dir, exist_ok=True)
-        subprocess.check_call(["cmake", "-DWITH_RANGE_COULOMB=ON", ".."], cwd=lib_dir)
+        subprocess.check_call(
+            [
+                "cmake",
+                "-DWITH_RANGE_COULOMB=ON",
+                "-DENABLE_EXAMPLE=0",
+                "-DENABLE_TEST=0",
+                "-DWITH_RANGE_COULOMB=1",
+                "-DWITH_F12=1",
+                "-DWITH_COULOMB_ERF=1",
+                "-DMIN_EXPCUTOFF=20",
+                "-DKEEP_GOING=1",
+                "..",
+            ],
+            cwd=lib_dir,
+        )
         subprocess.check_call(["make", "-j"], cwd=lib_dir)
         print("Library built successfully.")
     else:
