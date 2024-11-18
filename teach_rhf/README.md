@@ -1,4 +1,3 @@
-analysis
 
 # RHF code for teaching
 
