@@ -51,6 +51,10 @@ class RHF:
         self.V = None  # Nuclear attraction matrix
         self.H = None  # Core Hamiltonian
         self.eri = None  # Electron repulsion integrals
+
+        # Diis parameter
+        self.DIIS = True
+        self.diis_space = 12
         self.A = None  # Overlap orthogonalization matrix
 
         # Nuclear repulsion energy
@@ -234,7 +238,7 @@ class RHF:
 
     def get_energy_tot(self, F: npt.NDArray, D: npt.NDArray) -> float:
         return self.get_energy_elec(F, D) + self.E_nn
-    
+
     def _compute_diis_res(self, F: npt.NDArray, D: npt.NDArray) -> npt.NDArray:
         return self.A @ (F @ D @ self.S - self.S @ D @ F) @ self.A
 
@@ -245,11 +249,13 @@ class RHF:
         B[-1, :] = -1
         B[:, -1] = -1
         B[-1, -1] = 0
-        
+
         for i in range(len(F_list)):
             for j in range(len(F_list)):
                 # Compute the inner product of residuals
-                B[i, j] = np.einsum('ij,ij->', DIIS_list[i], DIIS_list[j], optimize=True)
+                B[i, j] = np.einsum(
+                    "ij,ij->", DIIS_list[i], DIIS_list[j], optimize=True
+                )
 
         rhs = np.zeros((B_dim))
         rhs[-1] = -1
@@ -262,7 +268,7 @@ class RHF:
 
         return F_new
 
-    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-7, use_diis: bool = True) -> float:
+    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-7) -> float:
         """Run the SCF procedure with precomputed integrals."""
         # Precompute all integrals before starting SCF
         self._compute_all_integrals()
@@ -280,20 +286,20 @@ class RHF:
             F = self.get_fock(D)
             E_total = self.get_energy_tot(F, D)
 
-            if use_diis:
+            if self.DIIS:
                 diis_res = self._compute_diis_res(F, D)
                 F_list.append(F)
                 DIIS_list.append(diis_res)
 
                 if iter_num > 0:
                     F = self.apply_diis(F_list, DIIS_list)
-                    
+
             # Get new density matrix and energy
             D_new = self.make_density(F)
 
             # Check convergence
             E_diff = abs(E_total - E_old)
-            D_diff = np.mean((D_new - D)**2)**0.5
+            D_diff = np.mean((D_new - D) ** 2) ** 0.5
 
             print(
                 f"Iter {iter_num:3d}: E = {E_total:.10f}, "
