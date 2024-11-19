@@ -55,7 +55,10 @@ class RHF:
         # Diis parameter
         self.DIIS = True
         self.diis_space = 12
+        self.diis_start = 2
         self.A = None  # Overlap orthogonalization matrix
+        self.F_list = []
+        self.DIIS_list = []
 
         # Nuclear repulsion energy
         self.E_nn = self._compute_nuclear_repulsion()
@@ -242,7 +245,7 @@ class RHF:
     def _compute_diis_res(self, F: npt.NDArray, D: npt.NDArray) -> npt.NDArray:
         return self.A @ (F @ D @ self.S - self.S @ D @ F) @ self.A
 
-    def apply_diis(self, F_list: list, DIIS_list: list) -> np.ndarray:
+    def apply_diis(self, F_list: list, DIIS_list: list) -> npt.NDArray:
         """Apply DIIS to update the Fock matrix."""
         B_dim = len(F_list) + 1
         B = np.empty((B_dim, B_dim))
@@ -262,9 +265,7 @@ class RHF:
         coeff = np.linalg.solve(B, rhs)
 
         # Update the Fock matrix as a linear combination of previous Fock matrices
-        F_new = np.zeros_like(F_list[0])
-        for i in range(len(coeff) - 1):
-            F_new += coeff[i] * F_list[i]
+        F_new = np.einsum("i,ikl->kl", coeff[:-1], F_list)
 
         return F_new
 
@@ -278,9 +279,6 @@ class RHF:
         D = self.make_density(self.H)
         E_old = 0.0
 
-        F_list = []
-        DIIS_list = []
-
         for iter_num in range(max_iter):
             # Build Fock matrix
             F = self.get_fock(D)
@@ -288,11 +286,15 @@ class RHF:
 
             if self.DIIS:
                 diis_res = self._compute_diis_res(F, D)
-                F_list.append(F)
-                DIIS_list.append(diis_res)
+                self.F_list.append(F)
+                self.DIIS_list.append(diis_res)
 
-                if iter_num > 0:
-                    F = self.apply_diis(F_list, DIIS_list)
+                if len(self.F_list) > self.diis_space:
+                    self.F_list.pop(0)
+                    self.DIIS_list.pop(0)
+
+                if iter_num > self.diis_start:
+                    F = self.apply_diis(self.F_list, self.DIIS_list)
 
             # Get new density matrix and energy
             D_new = self.make_density(F)
