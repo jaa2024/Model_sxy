@@ -55,6 +55,14 @@ class UHF:
         self.H = None  # Core Hamiltonian
         self.eri = None  # Electron repulsion integrals
 
+        # Diis parameter
+        self.DIIS = True
+        self.diis_space = 12
+        self.diis_start = 2
+        self.A = None  # Overlap orthogonalization matrix
+        self.F_list = []
+        self.DIIS_list = []
+
         # Nuclear repulsion energy
         self.E_nn = self._compute_nuclear_repulsion()
 
@@ -214,6 +222,7 @@ class UHF:
 
         # Compute core Hamiltonian and orthogonalization matrix
         self.H = self.T + self.V
+        self.A = scipy.linalg.fractional_matrix_power(self.S, -0.5)
         print("Integral computation completed.")
 
     def get_fock(
@@ -273,8 +282,50 @@ class UHF:
     ) -> float:
         """Calculate total energy."""
         return self.get_energy_elec(F, D) + self.E_nn
+    
+    def _compute_diis_res(
+        self, F: tuple[npt.NDArray, npt.NDArray], D: tuple[npt.NDArray, npt.NDArray]
+    ) -> tuple[npt.NDArray, npt.NDArray]:
+        Fa, Fb = F
+        Da, Db = D
+        res_a = self.A @ (Fa @ Da @ self.S - self.S @ Da @ Fa) @ self.A
+        res_b = self.A @ (Fb @ Db @ self.S - self.S @ Db @ Fb) @ self.A
+        return res_a, res_b
 
-    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-6) -> float:
+    def apply_diis(
+        self, F_list: list[tuple[npt.NDArray, npt.NDArray]], DIIS_list: list[tuple[npt.NDArray, npt.NDArray]]
+    ) -> tuple[npt.NDArray, npt.NDArray]:
+        """Apply DIIS to update the Fock matrix."""
+        B_dim = len(F_list) + 1
+        Ba = np.empty((B_dim, B_dim))
+        Bb = np.empty((B_dim, B_dim))
+        Ba[-1, :], Bb[-1, :] = -1, -1
+        Ba[:, -1], Bb[:, -1] = -1, -1
+        Ba[-1, -1], Bb[-1, -1] = 0, 0
+
+        for i in range(len(F_list)):
+            for j in range(len(F_list)):
+                # Compute the inner product of residuals
+                Ba[i, j] = np.einsum(
+                    "ij,ij->", DIIS_list[i][0], DIIS_list[j][0], optimize=True
+                )
+                Bb[i, j] = np.einsum(
+                    "ij,ij->", DIIS_list[i][1], DIIS_list[j][1], optimize=True
+                )
+
+        rhs = np.zeros((B_dim))
+        rhs[-1] = -1
+        coeff_a = np.linalg.solve(Ba, rhs)
+        coeff_b = np.linalg.solve(Bb, rhs)
+
+        # Update the Fock matrix as a linear combination of previous Fock matrices
+        Fa_new = np.einsum("i,ikl->kl", coeff_a[:-1], [f[0] for f in F_list])
+        Fb_new = np.einsum("i,ikl->kl", coeff_b[:-1], [f[1] for f in F_list])
+
+        return Fa_new, Fb_new
+
+
+    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-5) -> float:
         """Run the SCF procedure with precomputed integrals."""
         # Precompute all integrals before starting SCF
         self._compute_all_integrals()
@@ -288,13 +339,26 @@ class UHF:
             # Build Fock matrix
             F = self.get_fock(D)
             E_total = self.get_energy_tot(F, D)
+
+            if self.DIIS:
+                diis_res = self._compute_diis_res(F, D)
+                self.F_list.append(F)
+                self.DIIS_list.append(diis_res)
+
+                if len(self.F_list) > self.diis_space:
+                    self.F_list.pop(0)
+                    self.DIIS_list.pop(0)
+
+                if iter_num > self.diis_start:
+                    F = self.apply_diis(self.F_list, self.DIIS_list)
+
             # Get new density matrix and energy
             D_new = self.make_density(F)
 
             # Check convergence
             E_diff = abs(E_total - E_old)
             D_diff = (
-                np.linalg.norm(D_new[0] - D[0]) + np.linalg.norm(D_new[1] - D[1])
+                np.mean((D_new[0] - D[0]) ** 2) ** 0.5 + np.mean((D_new[1] - D[1]) ** 2) ** 0.5
             ) / 2
 
             print(
@@ -315,7 +379,9 @@ class UHF:
 
 def main():
     # Example usage
-    mol = gto.M(atom="O 0 0 0; O 0 0 1.2", basis="ccpvdz", spin=2)
+    # mol = gto.M(atom="O 0 0 0; O 0 0 1.2", basis="ccpvdz", spin=2)
+    mol = gto.M(atom="Co 0 0 0; Cl 2.2 0 0; Cl -2.2 0 0; Cl 0 2.2 0; Cl 0 -2.2 0", 
+                charge = -2, basis="ccpvdz", spin=3)
 
     # Compare with PySCF
     mf_pyscf = scf.UHF(mol)

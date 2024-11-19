@@ -56,6 +56,14 @@ class GHF:
         self.H = None  # Core Hamiltonian
         self.eri = None  # Electron repulsion integrals
 
+        # Diis parameter
+        self.DIIS = True
+        self.diis_space = 12
+        self.diis_start = 2
+        self.A = None  # Overlap orthogonalization matrix
+        self.F_list = []
+        self.DIIS_list = []
+
         # Nuclear repulsion energy
         self.E_nn = self._compute_nuclear_repulsion()
 
@@ -217,6 +225,7 @@ class GHF:
         self.S = scipy.linalg.block_diag(self.S, self.S)
         self.H = self.T + self.V
         self.H = scipy.linalg.block_diag(self.H, self.H)
+        self.A = scipy.linalg.fractional_matrix_power(self.S, -0.5)
         print("Integral computation completed.")
 
     def build_init_guess(self) -> npt.NDArray:
@@ -249,6 +258,33 @@ class GHF:
 
     def get_energy_tot(self, F: npt.NDArray, D: npt.NDArray) -> float:
         return self.get_energy_elec(F, D) + self.E_nn
+    
+    def _compute_diis_res(self, F: npt.NDArray, D: npt.NDArray) -> npt.NDArray:
+        return self.A @ (F @ D @ self.S - self.S @ D @ F) @ self.A
+
+    def apply_diis(self, F_list: list, DIIS_list: list) -> npt.NDArray:
+        """Apply DIIS to update the Fock matrix."""
+        B_dim = len(F_list) + 1
+        B = np.empty((B_dim, B_dim))
+        B[-1, :] = -1
+        B[:, -1] = -1
+        B[-1, -1] = 0
+
+        for i in range(len(F_list)):
+            for j in range(len(F_list)):
+                # Compute the inner product of residuals
+                B[i, j] = np.einsum(
+                    "ij,ij->", DIIS_list[i], DIIS_list[j], optimize=True
+                )
+
+        rhs = np.zeros((B_dim))
+        rhs[-1] = -1
+        coeff = np.linalg.solve(B, rhs)
+
+        # Update the Fock matrix as a linear combination of previous Fock matrices
+        F_new = np.einsum("i,ikl->kl", coeff[:-1], F_list)
+
+        return F_new
 
     def kernel(self, max_iter: int = 1000, conv_tol: float = 1e-6):
         """Run the SCF procedure with precomputed integrals."""
@@ -264,12 +300,25 @@ class GHF:
             # Build Fock matrix
             F = self.get_fock(D)
             E_total = self.get_energy_tot(F, D)
+
+            if self.DIIS:
+                diis_res = self._compute_diis_res(F, D)
+                self.F_list.append(F)
+                self.DIIS_list.append(diis_res)
+
+                if len(self.F_list) > self.diis_space:
+                    self.F_list.pop(0)
+                    self.DIIS_list.pop(0)
+
+                if iter_num > self.diis_start:
+                    F = self.apply_diis(self.F_list, self.DIIS_list)
+
             # Get new density matrix and energy
             D_new = self.make_density(F)
 
             # Check convergence
             E_diff = abs(E_total - E_old)
-            D_diff = np.linalg.norm(D_new - D)
+            D_diff = np.mean((D_new - D) ** 2) ** 0.5
 
             print(
                 f"Iter {iter_num:3d}: E = {E_total:.10f}, "
