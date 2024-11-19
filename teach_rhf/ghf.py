@@ -258,7 +258,7 @@ class GHF:
 
     def get_energy_tot(self, F: npt.NDArray, D: npt.NDArray) -> float:
         return self.get_energy_elec(F, D) + self.E_nn
-    
+
     def _compute_diis_res(self, F: npt.NDArray, D: npt.NDArray) -> npt.NDArray:
         return self.A @ (F @ D @ self.S - self.S @ D @ F) @ self.A
 

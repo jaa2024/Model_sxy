@@ -231,15 +231,13 @@ class UHF:
         """Build Fock matrices from density matrices using precomputed integrals."""
         Da, Db = D
         Fa = (
-            self.T
-            + self.V
+            self.H
             + np.einsum("pqrs, rs -> pq", self.eri, Da)
             + np.einsum("pqrs, rs -> pq", self.eri, Db)
             - np.einsum("prqs, rs -> pq", self.eri, Da)
         )
         Fb = (
-            self.T
-            + self.V
+            self.H
             + np.einsum("pqrs, rs -> pq", self.eri, Da)
             + np.einsum("pqrs, rs -> pq", self.eri, Db)
             - np.einsum("prqs, rs -> pq", self.eri, Db)
@@ -282,7 +280,7 @@ class UHF:
     ) -> float:
         """Calculate total energy."""
         return self.get_energy_elec(F, D) + self.E_nn
-    
+
     def _compute_diis_res(
         self, F: tuple[npt.NDArray, npt.NDArray], D: tuple[npt.NDArray, npt.NDArray]
     ) -> tuple[npt.NDArray, npt.NDArray]:
@@ -293,7 +291,9 @@ class UHF:
         return res_a, res_b
 
     def apply_diis(
-        self, F_list: list[tuple[npt.NDArray, npt.NDArray]], DIIS_list: list[tuple[npt.NDArray, npt.NDArray]]
+        self,
+        F_list: list[tuple[npt.NDArray, npt.NDArray]],
+        DIIS_list: list[tuple[npt.NDArray, npt.NDArray]],
     ) -> tuple[npt.NDArray, npt.NDArray]:
         """Apply DIIS to update the Fock matrix."""
         B_dim = len(F_list) + 1
@@ -323,7 +323,6 @@ class UHF:
         Fb_new = np.einsum("i,ikl->kl", coeff_b[:-1], [f[1] for f in F_list])
 
         return Fa_new, Fb_new
-
 
     def kernel(self, max_iter: int = 100, conv_tol: float = 1e-5) -> float:
         """Run the SCF procedure with precomputed integrals."""
@@ -358,7 +357,8 @@ class UHF:
             # Check convergence
             E_diff = abs(E_total - E_old)
             D_diff = (
-                np.mean((D_new[0] - D[0]) ** 2) ** 0.5 + np.mean((D_new[1] - D[1]) ** 2) ** 0.5
+                np.mean((D_new[0] - D[0]) ** 2) ** 0.5
+                + np.mean((D_new[1] - D[1]) ** 2) ** 0.5
             ) / 2
 
             print(
@@ -379,9 +379,13 @@ class UHF:
 
 def main():
     # Example usage
-    # mol = gto.M(atom="O 0 0 0; O 0 0 1.2", basis="ccpvdz", spin=2)
-    mol = gto.M(atom="Co 0 0 0; Cl 2.2 0 0; Cl -2.2 0 0; Cl 0 2.2 0; Cl 0 -2.2 0", 
-                charge = -2, basis="ccpvdz", spin=3)
+    mol = gto.M(atom="O 0 0 0; O 0 0 1.2", basis="ccpvtz", spin=2)
+    # mol = gto.M(
+    #     atom="Co 0 0 0; Cl 2.2 0 0; Cl -2.2 0 0; Cl 0 2.2 0; Cl 0 -2.2 0",
+    #     charge=-2,
+    #     basis="ccpvdz",
+    #     spin=3,
+    # )
 
     # Compare with PySCF
     mf_pyscf = scf.UHF(mol)
@@ -390,6 +394,7 @@ def main():
 
     # Our implementation
     mf = UHF(mol)
+    mf.DIIS = False
     E_our = mf.kernel()
     print(f"Our energy:   {E_our:.10f}")
     print(f"Difference:   {abs(E_pyscf - E_our):.10f}")
