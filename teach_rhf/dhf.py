@@ -120,10 +120,10 @@ class DHF:
                 y = _cint.CINTtot_cgto_spinor(self.bas, j)
 
                 # Allocate buffers
-                buf_t = np.empty((di, dj), np.complex128, order="F")
-                buf_vn = np.empty((di, dj), np.complex128, order="F")
-                buf_wn = np.empty((di, dj), np.complex128, order="F")
-                buf_s = np.empty((di, dj), np.complex128, order="F")
+                buf_t = np.zeros((di, dj), np.complex128, order="F")
+                buf_vn = np.zeros((di, dj), np.complex128, order="F")
+                buf_wn = np.zeros((di, dj), np.complex128, order="F")
+                buf_s = np.zeros((di, dj), np.complex128, order="F")
 
                 # Compute integrals
                 _cint.cint1e_spsp(
@@ -173,15 +173,15 @@ class DHF:
                 wn[y : y + dj, x : x + di] = buf_wn.conj().T
                 s[y : y + dj, x : x + di] = buf_s.conj().T
 
-        self.H = np.empty((n4c, n4c), np.complex128)
+        self.H = np.zeros((n4c, n4c), np.complex128)
         self.H[:n2c, :n2c] = vn
         self.H[n2c:, :n2c] = t * 0.5
         self.H[:n2c, n2c:] = t * 0.5
         self.H[n2c:, n2c:] = wn * (0.25 / c**2) - t * 0.5
 
-        self.S = np.empty((n4c, n4c), np.complex128)
+        self.S = np.zeros((n4c, n4c), np.complex128)
         self.S[:n2c, :n2c] = s
-        self.S[n2c:, n2c:] = t * (0.5 / c) ** 2
+        self.S[n2c:, n2c:] = t * (0.25 / c**2)
 
         # Compute two-electron integrals
         print("Computing ERI integrals...")
@@ -189,9 +189,9 @@ class DHF:
         _cint.cint2e_spsp1.argtypes = argtypes_2e
         _cint.cint2e_spsp1spsp2.argtypes = argtypes_2e
 
-        self.LLLL = np.empty((n2c, n2c, n2c, n2c), np.complex128)
-        self.SSLL = np.empty((n2c, n2c, n2c, n2c), np.complex128)
-        self.SSSS = np.empty((n2c, n2c, n2c, n2c), np.complex128)
+        self.LLLL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
+        self.SSLL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
+        self.SSSS = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
 
         for i in range(self.nshls):
             di = _cint.CINTcgto_spinor(i, self.bas)
@@ -206,9 +206,9 @@ class DHF:
                         dl = _cint.CINTcgto_spinor(l, self.bas)
                         w = _cint.CINTtot_cgto_spinor(self.bas, l)
 
-                        llll = np.empty((di, dj, dk, dl), np.complex128, order="F")
-                        ssll = np.empty((di, dj, dk, dl), np.complex128, order="F")
-                        ssss = np.empty((di, dj, dk, dl), np.complex128, order="F")
+                        llll = np.zeros((di, dj, dk, dl), np.complex128, order="F")
+                        ssll = np.zeros((di, dj, dk, dl), np.complex128, order="F")
+                        ssss = np.zeros((di, dj, dk, dl), np.complex128, order="F")
                         _cint.cint2e(
                             llll,
                             (ctypes.c_int * 4)(i, j, k, l),
@@ -451,7 +451,6 @@ def main():
 
     mf = DHF(mol)
     mf._compute_all_integrals()
-    ini = mf.make_density(mf.H)
 
     # ref = mol.intor("int2e_ssp1ssp2_spinor").reshape(mf.n2c, mf.n2c, mf.n2c, mf.n2c)
 
@@ -461,9 +460,6 @@ def main():
     mf_pyscf.verbose = 0
     mf_pyscf.init_guess = "1e"
 
-    ref = mf_pyscf.init_guess_by_1e()
-
-    print(np.sum(np.abs(ref - ini)))
     # print(mol.time_reversal_map())
     # print("E(Dirac-Coulomb) = %.15g" % mf_pyscf.kernel())
 

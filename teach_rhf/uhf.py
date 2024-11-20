@@ -102,9 +102,9 @@ class UHF:
                 y = _cint.CINTtot_cgto_spheric(self.bas, j)
 
                 # Allocate buffers
-                buf_s = np.empty((di, dj), order="F")
-                buf_t = np.empty((di, dj), order="F")
-                buf_v = np.empty((di, dj), order="F")
+                buf_s = np.zeros((di, dj), order="F")
+                buf_t = np.zeros((di, dj), order="F")
+                buf_v = np.zeros((di, dj), order="F")
 
                 # Compute integrals
                 _cint.cint1e_ovlp_sph(
@@ -184,7 +184,7 @@ class UHF:
                         dl = _cint.CINTcgto_spheric(l, self.bas)
                         w = _cint.CINTtot_cgto_spheric(self.bas, l)
 
-                        buf = np.empty((di, dj, dk, dl), order="F")
+                        buf = np.zeros((di, dj, dk, dl), order="F")
                         _cint.cint2e_sph(
                             buf,
                             (ctypes.c_int * 4)(i, j, k, l),
@@ -297,8 +297,8 @@ class UHF:
     ) -> tuple[npt.NDArray, npt.NDArray]:
         """Apply DIIS to update the Fock matrix."""
         B_dim = len(F_list) + 1
-        Ba = np.empty((B_dim, B_dim))
-        Bb = np.empty((B_dim, B_dim))
+        Ba = np.zeros((B_dim, B_dim))
+        Bb = np.zeros((B_dim, B_dim))
         Ba[-1, :], Bb[-1, :] = -1, -1
         Ba[:, -1], Bb[:, -1] = -1, -1
         Ba[-1, -1], Bb[-1, -1] = 0, 0
@@ -381,14 +381,15 @@ def main():
     # Example usage
     mol = gto.M(atom="O 0 0 0; O 0 0 1.2", basis="ccpvtz", spin=2)
     # mol = gto.M(
-    #     atom="Co 0 0 0; Cl 2.2 0 0; Cl -2.2 0 0; Cl 0 2.2 0; Cl 0 -2.2 0",
-    #     charge=-2,
-    #     basis="ccpvdz",
-    #     spin=3,
+    #    atom="Co 0 0 0; Cl 2.2 0 0; Cl -2.2 0 0; Cl 0 2.2 0; Cl 0 -2.2 0",
+    #    charge=-2,
+    #    basis="ccpvdz",
+    #    spin=3,
     # )
-
+    #
     # Compare with PySCF
     mf_pyscf = scf.UHF(mol)
+    mf_pyscf.init_guess = "1e"
     E_pyscf = mf_pyscf.kernel()
     print(f"\nPySCF energy: {E_pyscf:.10f}")
 
