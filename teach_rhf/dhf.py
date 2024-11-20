@@ -9,6 +9,8 @@ from build import build_lib
 # Keep the original _cint and argtypes setup
 _cint = build_lib()
 
+LIGHT_SPEED = 137.03599967994
+
 argtypes = [
     np.ctypeslib.ndpointer(dtype=np.complex128, ndim=2),
     (ctypes.c_int * 2),
@@ -44,7 +46,7 @@ _cint.CINTtot_cgto_spinor.argtypes = [
 ]
 
 
-class RHF:
+class DHF:
     def __init__(self, mol: gto.Mole):
         """Initialize RHF calculator with a PySCF Mole object."""
         self.mol = mol
@@ -63,9 +65,16 @@ class RHF:
         # Initialize integral matrices
         self.S = None  # Overlap matrix
         self.H = None  # Core Hamiltonian
+        # Dirac Coulumb integral
+        self._coulomb_level = "LLLL"
         self.LLLL = None
         self.SSLL = None
         self.SSSS = None
+        # Gaunt Breit integral
+        self.with_gaunt = False
+        self.with_briet = False  # not support!
+        self.GAUNT = None
+        self.BREIT = None  # not support!
 
         # Nuclear repulsion energy
         self.E_nn = self._compute_nuclear_repulsion()
@@ -86,7 +95,7 @@ class RHF:
         """Precompute all necessary integrals."""
         print("Precomputing integrals...")
 
-        c = scipy.constants.speed_of_light
+        c = LIGHT_SPEED
         n2c = self.n2c
         n4c = self.n4c
 
@@ -235,25 +244,142 @@ class RHF:
         # Compute core Hamiltonian and orthogonalization matrix
         print("Integral computation completed.")
 
+    def build_init_guess(self) -> npt.NDArray:
+        _, C = scipy.linalg.eigh(self.H, self.S)
+        C_occ = C[:, : self.nelec]
+        return np.einsum("pi,qi->pq", C_occ, C_occ, optimize=True)
+
     def get_fock(self, D: npt.NDArray) -> npt.NDArray:
         """Build Fock matrix from density matrix using precomputed integrals."""
-        J = np.einsum("ijkl,kl->ij", self.eri, D, optimize=True)
-        K = np.einsum("ikjl,kl->ij", self.eri, D, optimize=True)
-        return self.H + 2 * J - K
+
+        n2c = self.n2c
+        coulomb_level = self._coulomb_level
+        c1 = 0.5 / LIGHT_SPEED
+
+        vj = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
+        vk = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
+        if coulomb_level.upper() == "LLLL":
+            dms = D[:n2c, :n2c].copy()
+            J = np.einsum("ijkl,kl->ij", self.LLLL, dms, optimize=True)
+            K = np.einsum("ikjl,kl->ij", self.LLLL, dms, optimize=True)
+
+            vj[:n2c, :n2c] = J
+            vk[:n2c, :n2c] = K
+        elif coulomb_level.upper() == "SSLL" or coulomb_level.upper() == "LLSS":
+            dm = D.copy()
+            dm1 = dm[:n2c, :n2c].copy()
+            dm2 = dm[n2c:, n2c:].copy()
+            dm3 = dm[n2c:, :n2c].copy()
+            dm4 = dm[:n2c, n2c:].copy()
+
+            J1 = (
+                np.einsum("ijkl,lk->ij", self.SSLL, dm1, optimize=True) * c1**2
+            )  # lk->s2ij
+            J2 = (
+                np.einsum("ijkl,ji->kl", self.SSLL, dm2, optimize=True) * c1**2
+            )  # ji->s2kl
+            K1 = (
+                np.einsum("ikjl,jk->il", self.SSLL, dm3, optimize=True) * c1**2
+            )  # jk->s1il
+            K2 = (
+                np.einsum("ljik,li->kj", self.SSLL, dm4, optimize=True) * c1**2
+            )  # li->s1kj
+
+            dms = D[:n2c, :n2c].copy()
+            J = np.einsum("ijkl,kl->ij", self.LLLL, dms, optimize=True)
+            K = np.einsum("ikjl,kl->ij", self.LLLL, dms, optimize=True)
+
+            vj[n2c:, n2c:] = J1
+            vj[:n2c, :n2c] = J2
+            vk[n2c:, :n2c] = K1
+            vk[:n2c, n2c:] = K2
+
+            vj[:n2c, :n2c] += J
+            vk[:n2c, :n2c] += K
+        else:
+            dm = D.copy()
+            dm1 = dm[:n2c, :n2c].copy()
+            dm2 = dm[n2c:, n2c:].copy()
+            dm3 = dm[n2c:, :n2c].copy()
+            dm4 = dm[:n2c, n2c:].copy()
+
+            J1 = (
+                np.einsum("ijkl,lk->ij", self.SSLL, dm1, optimize=True) * c1**2
+            )  # lk->s2ij
+            J2 = (
+                np.einsum("ijkl,ji->kl", self.SSLL, dm2, optimize=True) * c1**2
+            )  # ji->s2kl
+            K1 = (
+                np.einsum("ikjl,jk->il", self.SSLL, dm3, optimize=True) * c1**2
+            )  # jk->s1il
+            K2 = (
+                np.einsum("ljik,li->kj", self.SSLL, dm4, optimize=True) * c1**2
+            )  # li->s1kj
+
+            dms = D[:n2c, :n2c].copy()
+            J = np.einsum("ijkl,kl->ij", self.LLLL, dms, optimize=True)
+            K = np.einsum("ikjl,kl->ij", self.LLLL, dms, optimize=True)
+
+            vj[n2c:, n2c:] = J1
+            vj[:n2c, :n2c] = J2
+            vk[n2c:, :n2c] = K1
+            vk[:n2c, n2c:] = K2
+
+            vj[:n2c, :n2c] += J
+            vk[:n2c, :n2c] += K
+
+            dms = D[n2c:, n2c:].copy()
+            J = np.einsum("ijkl,kl->ij", self.SSSS, dms, optimize=True) * c1**4
+            K = np.einsum("ikjl,kl->ij", self.LLLL, dms, optimize=True) * c1**4
+
+            vj[n2c:, n2c:] += J
+            vk[n2c:, n2c:] += K
+
+        return self.H + vj - vk
 
     def make_density(self, fock: npt.NDArray) -> npt.NDArray:
         """Create new density matrix and calculate electronic energy."""
         # Solve eigenvalue problem
-        _, C = scipy.linalg.eigh(fock, self.S)
+        mo_energy, mo_coeff = scipy.linalg.eigh(fock, self.S)
+
+        n4c = self.n4c
+        n2c = self.n2c
+
+        mo_occ = np.zeros(n4c)
+        c = LIGHT_SPEED
+        collapse_threshold = -1.999 * c**2
+
+        if mo_energy[n2c] > collapse_threshold:
+            # Normal case - fill lowest energy orbitals
+            mo_occ[n2c : n2c + self.nelec] = 1
+        else:
+            # Handle variational collapse
+            valid_energies = mo_energy > collapse_threshold
+            lumo = mo_energy[valid_energies][self.nelec]
+            mo_occ[valid_energies] = 1
+            mo_occ[mo_energy >= lumo] = 0
+
         # Form density matrix
-        C_occ = C[:, : self.ndocc]
-        return np.einsum("pi,qi->pq", C_occ, C_occ, optimize=True)
+        C_occ = mo_coeff[:, mo_occ > 0]
+        occ_weights = mo_occ[mo_occ > 0]
+
+        return np.einsum("pi,i,qi->pq", C_occ, occ_weights, C_occ, optimize=True)
 
     def get_energy_elec(self, F: npt.NDArray, D: npt.NDArray) -> float:
         return np.einsum("pq,pq->", (self.H + F), D, optimize=True)
 
     def get_energy_tot(self, F: npt.NDArray, D: npt.NDArray) -> float:
         return self.get_energy_elec(F, D) + self.E_nn
+
+    def scf(
+        self, max_iter: int = 100, conv_tol: float = 1e-6, D: npt.NDArray = None
+    ) -> npt.NDArray:
+        if D is None:
+            D = self.build_init_guess()
+
+        for iter_num in range(max_iter):
+            F = self.get_fock(D)
+        return D
 
     def kernel(self, max_iter: int = 100, conv_tol: float = 1e-6) -> float:
         """Run the SCF procedure with precomputed integrals."""
@@ -326,16 +452,20 @@ def main():
         ],
     }
 
-    mf = RHF(mol)
+    mf = DHF(mol)
     mf._compute_all_integrals()
+    print(mf.make_density(mf.H))
 
-    ref = mol.intor("int2e_spsp1spsp2_spinor").reshape(mf.n2c, mf.n2c, mf.n2c, mf.n2c)
+    # ref = mol.intor("int2e_ssp1ssp2_spinor").reshape(mf.n2c, mf.n2c, mf.n2c, mf.n2c)
 
     # print(np.sum(ref - mf.SSSS))
     # Compare with PySCF
-    # mf_pyscf = scf.DHF(mol)
-    # mf_pyscf.verbose = 5
-    # print("E(Dirac-Coulomb) = %.15g" % mf_pyscf.kernel())
+    mf_pyscf = scf.DHF(mol)
+    mf_pyscf.verbose = 5
+    mf_pyscf.init_guess = "1e"
+    mf_pyscf.direct_scf = True
+    # print(mol.time_reversal_map())
+    print("E(Dirac-Coulomb) = %.15g" % mf_pyscf.kernel())
 
     # mf_pyscf.with_gaunt = True
     # print("E(Dirac-Coulomb-Gaunt) = %.15g" % mf_pyscf.kernel())
