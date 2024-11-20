@@ -4,6 +4,7 @@ from pyscf import gto, scf
 import ctypes
 import numpy.typing as npt
 import scipy.constants
+import scipy.linalg
 from build import build_lib
 
 # Keep the original _cint and argtypes setup
@@ -59,8 +60,8 @@ class DHF:
         self.n4c = self.n2c * 2
         self.nshls = len(self.bas)
         self.natm = len(self.atm)
-        self.nelec = mol.nelec
-        self.ndocc = min(self.nelec)
+        self.nelec = sum(mol.nelec)
+        self.ndocc = min(mol.nelec)
 
         # Initialize integral matrices
         self.S = None  # Overlap matrix
@@ -244,11 +245,6 @@ class DHF:
         # Compute core Hamiltonian and orthogonalization matrix
         print("Integral computation completed.")
 
-    def build_init_guess(self) -> npt.NDArray:
-        _, C = scipy.linalg.eigh(self.H, self.S)
-        C_occ = C[:, : self.nelec]
-        return np.einsum("pi,qi->pq", C_occ, C_occ, optimize=True)
-
     def get_fock(self, D: npt.NDArray) -> npt.NDArray:
         """Build Fock matrix from density matrix using precomputed integrals."""
 
@@ -361,9 +357,10 @@ class DHF:
 
         # Form density matrix
         C_occ = mo_coeff[:, mo_occ > 0]
-        occ_weights = mo_occ[mo_occ > 0]
+        # occ_weights = mo_occ[mo_occ > 0]
 
-        return np.einsum("pi,i,qi->pq", C_occ, occ_weights, C_occ, optimize=True)
+        # return np.einsum("pi,i,qi->pq", C_occ, occ_weights, C_occ, optimize=True)
+        return (C_occ * mo_occ[mo_occ > 0]).dot(C_occ.conj().T)
 
     def get_energy_elec(self, F: npt.NDArray, D: npt.NDArray) -> float:
         return np.einsum("pq,pq->", (self.H + F), D, optimize=True)
@@ -454,18 +451,21 @@ def main():
 
     mf = DHF(mol)
     mf._compute_all_integrals()
-    print(mf.make_density(mf.H))
+    ini = mf.make_density(mf.H)
 
     # ref = mol.intor("int2e_ssp1ssp2_spinor").reshape(mf.n2c, mf.n2c, mf.n2c, mf.n2c)
 
     # print(np.sum(ref - mf.SSSS))
     # Compare with PySCF
     mf_pyscf = scf.DHF(mol)
-    mf_pyscf.verbose = 5
+    mf_pyscf.verbose = 0
     mf_pyscf.init_guess = "1e"
-    mf_pyscf.direct_scf = True
+
+    ref = mf_pyscf.init_guess_by_1e()
+
+    print(np.sum(np.abs(ref - ini)))
     # print(mol.time_reversal_map())
-    print("E(Dirac-Coulomb) = %.15g" % mf_pyscf.kernel())
+    # print("E(Dirac-Coulomb) = %.15g" % mf_pyscf.kernel())
 
     # mf_pyscf.with_gaunt = True
     # print("E(Dirac-Coulomb-Gaunt) = %.15g" % mf_pyscf.kernel())
