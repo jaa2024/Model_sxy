@@ -70,7 +70,7 @@ class DHF:
         self._coulomb_level = "LLLL"
         self.LLLL = None
         self.SSLL = None
-        self.with_ssss = False
+        self.with_ssss = True
         self.SSSS = None
         # Gaunt Breit integral
         self.with_gaunt = False
@@ -261,7 +261,7 @@ class DHF:
         if coulomb_level.upper() == "LLLL":
             dms = D[:n2c, :n2c].copy()
             J = np.einsum("ijkl,lk->ij", self.LLLL, dms, optimize=True)
-            K = np.einsum("ikjl,jk->il", self.LLLL, dms, optimize=True)
+            K = np.einsum("ilkj,lk->ij", self.LLLL, dms, optimize=True)
 
             vj[:n2c, :n2c] = J
             vk[:n2c, :n2c] = K
@@ -276,18 +276,18 @@ class DHF:
                 np.einsum("ijkl,lk->ij", self.SSLL, dm1, optimize=True) * c1**2
             )  # lk->s2ij
             J2 = (
-                np.einsum("ijkl,ji->kl", self.SSLL, dm2, optimize=True) * c1**2
+                np.einsum("klij,lk->ij", self.SSLL, dm2, optimize=True) * c1**2
             )  # ji->s2kl
             K1 = (
-                np.einsum("ikjl,jk->il", self.SSLL, dm3, optimize=True) * c1**2
+                np.einsum("ilkj,lk->ij", self.SSLL, dm3, optimize=True) * c1**2
             )  # jk->s1il
             K2 = (
-                np.einsum("ljik,li->kj", self.SSLL, dm4, optimize=True) * c1**2
+                np.einsum("kjil,lk->ij", self.SSLL, dm4, optimize=True) * c1**2
             )  # li->s1kj
 
             dms = D[:n2c, :n2c].copy()
             J = np.einsum("ijkl,lk->ij", self.LLLL, dms, optimize=True)
-            K = np.einsum("ikjl,jk->il", self.LLLL, dms, optimize=True)
+            K = np.einsum("ilkj,lk->ij", self.LLLL, dms, optimize=True)
 
             vj[n2c:, n2c:] = J1
             vj[:n2c, :n2c] = J2
@@ -303,23 +303,14 @@ class DHF:
             dm3 = dm[n2c:, :n2c].copy()
             dm4 = dm[:n2c, n2c:].copy()
 
-            J1 = (
-                np.einsum("ijkl,lk->ij", self.SSLL, dm1, optimize=True) * c1**2
-            )  # lk->s2ij
-            J2 = (
-                np.einsum("ijkl,ji->kl", self.SSLL, dm2, optimize=True) * c1**2
-            )  # ji->s2kl
-            K1 = (
-                np.einsum("ikjl,jk->il", self.SSLL, dm3, optimize=True) * c1**2
-            )  # jk->s1il
-            K2 = (
-                np.einsum("ljik,li->kj", self.SSLL, dm4, optimize=True) * c1**2
-            )  # li->s1kj
+            J1 = np.einsum("ijkl,lk->ij", self.SSLL, dm1, optimize=True) * c1**2
+            J2 = np.einsum("klij,lk->ij", self.SSLL, dm2, optimize=True) * c1**2
+            K1 = np.einsum("ilkj,lk->ij", self.SSLL, dm3, optimize=True) * c1**2
+            K2 = np.einsum("kjil,lk->ij", self.SSLL, dm4, optimize=True) * c1**2
 
             dms = D[:n2c, :n2c].copy()
             J = np.einsum("ijkl,lk->ij", self.LLLL, dms, optimize=True)
-            K = np.einsum("ikjl,jk->il", self.LLLL, dms, optimize=True)
-
+            K = np.einsum("ilkj,lk->ij", self.LLLL, dms, optimize=True)
             vj[n2c:, n2c:] = J1
             vj[:n2c, :n2c] = J2
             vk[n2c:, :n2c] = K1
@@ -329,8 +320,8 @@ class DHF:
             vk[:n2c, :n2c] += K
 
             dms = D[n2c:, n2c:].copy()
-            J = np.einsum("ijkl,kl->ij", self.SSSS, dms, optimize=True) * c1**4
-            K = np.einsum("ikjl,kl->ij", self.LLLL, dms, optimize=True) * c1**4
+            J = np.einsum("ijkl,lk->ij", self.SSSS, dms, optimize=True) * c1**4
+            K = np.einsum("ilkj,lk->ij", self.SSSS, dms, optimize=True) * c1**4
 
             vj[n2c:, n2c:] += J
             vk[n2c:, n2c:] += K
@@ -367,7 +358,6 @@ class DHF:
     def get_energy_elec(self, V: npt.NDArray, D: npt.NDArray) -> float:
         e1 = np.einsum("pq,qp->", self.H, D, optimize=True).real
         e_col = np.einsum("pq,qp->", V, D, optimize=True).real * 0.5
-        print(f"e1 = {e1:.10f}, e_col = {e_col:.10f}")
         return e1 + e_col
 
     def get_energy_tot(self, V: npt.NDArray, D: npt.NDArray) -> float:
@@ -459,19 +449,20 @@ def main():
 
     mf = DHF(mol)
 
-    mf.kernel()
+    E_our = mf.kernel()
 
-    # ref = mol.intor("int2e_ssp1ssp2_spinor").reshape(mf.n2c, mf.n2c, mf.n2c, mf.n2c)
-
-    # print(np.sum(ref - mf.SSSS))
+    # ref = mol.intor("int2e_spinor").reshape(mf.n2c, mf.n2c, mf.n2c, mf.n2c)
+    #
+    # print((ref - mf.LLLL).max())
     # Compare with PySCF
     mf_pyscf = scf.DHF(mol)
-    mf_pyscf.verbose = 5
-    mf_pyscf.init_guess = "1e"
-    mf_pyscf.with_ssss = False
 
-    # print(mol.time_reversal_map())
-    print("E(Dirac-Coulomb) = %.15g" % mf_pyscf.kernel())
+    # mf_pyscf.verbose = 5
+    mf_pyscf.init_guess = "1e"
+    mf_pyscf.with_ssss = True
+    E_pyscf = mf_pyscf.kernel()
+
+    # print("E(Dirac-Coulomb) = %.15g" % mf_pyscf.kernel())
 
     # mf_pyscf.with_gaunt = True
     # print("E(Dirac-Coulomb-Gaunt) = %.15g" % mf_pyscf.kernel())
@@ -484,8 +475,9 @@ def main():
     # # Our implementation
     # mf = RHF(mol)
     # E_our = mf.kernel()
-    # print(f"Our energy:   {E_our:.10f}")
-    # print(f"Difference:   {abs(E_pyscf - E_our):.10f}")
+    print(f"\n\nOur energy:   {E_our:.10f}")
+    print(f"PySCF energy: {E_pyscf:.10f}")
+    print(f"Difference:   {abs(E_pyscf - E_our):.10f}")
 
 
 if __name__ == "__main__":

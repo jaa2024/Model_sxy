@@ -324,7 +324,7 @@ class UHF:
 
         return Fa_new, Fb_new
 
-    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-5) -> float:
+    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-6) -> float:
         """Run the SCF procedure with precomputed integrals."""
         # Precompute all integrals before starting SCF
         self._compute_all_integrals()
@@ -359,7 +359,7 @@ class UHF:
             D_diff = (
                 np.mean((D_new[0] - D[0]) ** 2) ** 0.5
                 + np.mean((D_new[1] - D[1]) ** 2) ** 0.5
-            ) / 2
+            )
 
             print(
                 f"Iter {iter_num:3d}: E = {E_total:.10f}, "
