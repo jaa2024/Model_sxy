@@ -70,6 +70,7 @@ class DHF:
         self._coulomb_level = "LLLL"
         self.LLLL = None
         self.SSLL = None
+        self.with_ssss = False
         self.SSSS = None
         # Gaunt Breit integral
         self.with_gaunt = False
@@ -245,7 +246,10 @@ class DHF:
         # Compute core Hamiltonian and orthogonalization matrix
         print("Integral computation completed.")
 
-    def get_fock(self, D: npt.NDArray) -> npt.NDArray:
+    def build_init_guess(self):
+        return self.make_density(self.H)
+
+    def get_vhf(self, D: npt.NDArray) -> npt.NDArray:
         """Build Fock matrix from density matrix using precomputed integrals."""
 
         n2c = self.n2c
@@ -256,8 +260,8 @@ class DHF:
         vk = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
         if coulomb_level.upper() == "LLLL":
             dms = D[:n2c, :n2c].copy()
-            J = np.einsum("ijkl,kl->ij", self.LLLL, dms, optimize=True)
-            K = np.einsum("ikjl,kl->ij", self.LLLL, dms, optimize=True)
+            J = np.einsum("ijkl,lk->ij", self.LLLL, dms, optimize=True)
+            K = np.einsum("ikjl,jk->il", self.LLLL, dms, optimize=True)
 
             vj[:n2c, :n2c] = J
             vk[:n2c, :n2c] = K
@@ -282,8 +286,8 @@ class DHF:
             )  # li->s1kj
 
             dms = D[:n2c, :n2c].copy()
-            J = np.einsum("ijkl,kl->ij", self.LLLL, dms, optimize=True)
-            K = np.einsum("ikjl,kl->ij", self.LLLL, dms, optimize=True)
+            J = np.einsum("ijkl,lk->ij", self.LLLL, dms, optimize=True)
+            K = np.einsum("ikjl,jk->il", self.LLLL, dms, optimize=True)
 
             vj[n2c:, n2c:] = J1
             vj[:n2c, :n2c] = J2
@@ -292,7 +296,7 @@ class DHF:
 
             vj[:n2c, :n2c] += J
             vk[:n2c, :n2c] += K
-        else:
+        else:  # SSSS
             dm = D.copy()
             dm1 = dm[:n2c, :n2c].copy()
             dm2 = dm[n2c:, n2c:].copy()
@@ -313,8 +317,8 @@ class DHF:
             )  # li->s1kj
 
             dms = D[:n2c, :n2c].copy()
-            J = np.einsum("ijkl,kl->ij", self.LLLL, dms, optimize=True)
-            K = np.einsum("ikjl,kl->ij", self.LLLL, dms, optimize=True)
+            J = np.einsum("ijkl,lk->ij", self.LLLL, dms, optimize=True)
+            K = np.einsum("ikjl,jk->il", self.LLLL, dms, optimize=True)
 
             vj[n2c:, n2c:] = J1
             vj[:n2c, :n2c] = J2
@@ -331,7 +335,7 @@ class DHF:
             vj[n2c:, n2c:] += J
             vk[n2c:, n2c:] += K
 
-        return self.H + vj - vk
+        return vj - vk
 
     def make_density(self, fock: npt.NDArray) -> npt.NDArray:
         """Create new density matrix and calculate electronic energy."""
@@ -357,16 +361,17 @@ class DHF:
 
         # Form density matrix
         C_occ = mo_coeff[:, mo_occ > 0]
-        # occ_weights = mo_occ[mo_occ > 0]
 
-        # return np.einsum("pi,i,qi->pq", C_occ, occ_weights, C_occ, optimize=True)
         return (C_occ * mo_occ[mo_occ > 0]).dot(C_occ.conj().T)
 
-    def get_energy_elec(self, F: npt.NDArray, D: npt.NDArray) -> float:
-        return np.einsum("pq,pq->", (self.H + F), D, optimize=True)
+    def get_energy_elec(self, V: npt.NDArray, D: npt.NDArray) -> float:
+        e1 = np.einsum("pq,qp->", self.H, D, optimize=True).real
+        e_col = np.einsum("pq,qp->", V, D, optimize=True).real * 0.5
+        print(f"e1 = {e1:.10f}, e_col = {e_col:.10f}")
+        return e1 + e_col
 
-    def get_energy_tot(self, F: npt.NDArray, D: npt.NDArray) -> float:
-        return self.get_energy_elec(F, D) + self.E_nn
+    def get_energy_tot(self, V: npt.NDArray, D: npt.NDArray) -> float:
+        return self.get_energy_elec(V, D) + self.E_nn
 
     def scf(
         self, max_iter: int = 100, conv_tol: float = 1e-6, D: npt.NDArray = None
@@ -374,45 +379,48 @@ class DHF:
         if D is None:
             D = self.build_init_guess()
 
-        for iter_num in range(max_iter):
-            F = self.get_fock(D)
-        return D
-
-    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-6) -> float:
-        """Run the SCF procedure with precomputed integrals."""
-        # Precompute all integrals before starting SCF
-        self._compute_all_integrals()
-
-        print("Starting SCF calculation...")
-        # Initial guess using core Hamiltonian
-        D = self.make_density(self.H)
         E_old = 0.0
+        print(f"Starting {self._coulomb_level}")
 
         for iter_num in range(max_iter):
-            # Build Fock matrix
-            F = self.get_fock(D)
-            E_total = self.get_energy_tot(F, D)
-            # Get new density matrix and energy
-            D_new = self.make_density(F)
+            vhf = self.get_vhf(D)
+            E_total = self.get_energy_tot(vhf, D)
 
-            # Check convergence
-            E_diff = abs(E_total - E_old)
-            D_diff = np.linalg.norm(D_new - D)
+            D_new = self.make_density(self.H + vhf)
+
+            E_diff = E_total - E_old
+            D_diff = np.mean((D_new - D).real ** 2) ** 0.5
 
             print(
                 f"Iter {iter_num:3d}: E = {E_total:.10f}, "
                 f"dE = {E_diff:.3e}, dD = {D_diff:.3e}"
             )
 
-            if E_diff < conv_tol and D_diff < conv_tol:
+            if abs(E_diff) < conv_tol and D_diff < conv_tol:
                 print("\nSCF Converged!")
                 print(f"Final SCF energy: {E_total:.10f}")
-                return E_total
-
+                return D_new, E_total
             D = D_new
             E_old = E_total
 
         raise RuntimeError("SCF did not converge within maximum iterations")
+
+    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-6) -> float:
+        """Run the SCF procedure with precomputed integrals."""
+        # Precompute all integrals before starting SCF
+        self._compute_all_integrals()
+        self._coulomb_level = "LLLL"
+        dm, e = self.scf(max_iter=100, conv_tol=1e-3, D=None)
+        if self.with_ssss is True:
+            self._coulomb_level = "SSLL"
+            dm, e = self.scf(max_iter=100, conv_tol=1e-4, D=dm)
+
+            self._coulomb_level = "SSSS"
+            dm, e = self.scf(max_iter=100, conv_tol=conv_tol, D=dm)
+        else:
+            self._coulomb_level = "SSLL"
+            dm, e = self.scf(max_iter=100, conv_tol=conv_tol, D=dm)
+        return e
 
 
 def main():
@@ -450,18 +458,20 @@ def main():
     }
 
     mf = DHF(mol)
-    mf._compute_all_integrals()
+
+    mf.kernel()
 
     # ref = mol.intor("int2e_ssp1ssp2_spinor").reshape(mf.n2c, mf.n2c, mf.n2c, mf.n2c)
 
     # print(np.sum(ref - mf.SSSS))
     # Compare with PySCF
     mf_pyscf = scf.DHF(mol)
-    mf_pyscf.verbose = 0
+    mf_pyscf.verbose = 5
     mf_pyscf.init_guess = "1e"
+    mf_pyscf.with_ssss = False
 
     # print(mol.time_reversal_map())
-    # print("E(Dirac-Coulomb) = %.15g" % mf_pyscf.kernel())
+    print("E(Dirac-Coulomb) = %.15g" % mf_pyscf.kernel())
 
     # mf_pyscf.with_gaunt = True
     # print("E(Dirac-Coulomb-Gaunt) = %.15g" % mf_pyscf.kernel())
