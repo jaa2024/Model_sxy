@@ -39,7 +39,6 @@ _cint.CINTcgto_spinor.argtypes = [
     ctypes.c_int,
     np.ctypeslib.ndpointer(dtype=np.int32, ndim=2),
 ]
-
 _cint.CINTtot_cgto_spinor.restype = ctypes.c_int
 _cint.CINTtot_cgto_spinor.argtypes = [
     np.ctypeslib.ndpointer(dtype=np.int32, ndim=2),
@@ -73,9 +72,14 @@ class DHF:
         self.with_ssss = True
         self.SSSS = None
         # Gaunt Breit integral
-        self.with_gaunt = False
+
+        self.with_gaunt = True  # TODO
         self.with_briet = False  # not support!
-        self.GAUNT = None
+        self.LSLS = None
+        self.SLSL = None
+        self.LSSL = None
+        self.SLLS = None
+
         self.BREIT = None  # not support!
 
         # Nuclear repulsion energy
@@ -186,15 +190,24 @@ class DHF:
 
         # Compute two-electron integrals
         print("Computing ERI integrals...")
-        _cint.cint2e.argtypes = argtypes_2e
-        _cint.cint2e_spsp1.argtypes = argtypes_2e
-        _cint.cint2e_spsp1spsp2.argtypes = argtypes_2e
+        _cint.cint2e.argtypes = argtypes_2e  # (LL|LL)
+        _cint.cint2e_spsp1.argtypes = argtypes_2e  # (SS|LL)
+        _cint.cint2e_spsp1spsp2.argtypes = argtypes_2e  # (SS|SS)
+        _cint.cint2e_ssp1ssp2.argtypes = argtypes_2e  # (LσS|LσS)
+        _cint.cint2e_sps1sps2.argtypes = argtypes_2e  # (SσL|SσL)
+        _cint.cint2e_ssp1sps2.argtypes = argtypes_2e  # (LσS|SσL)
+        _cint.cint2e_sps1ssp2.argtypes = argtypes_2e  # (SσL|LσS)
 
         self.LLLL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
         self.SSLL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
 
         if self.with_ssss is True:
             self.SSSS = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
+        if self.with_gaunt is True:
+            self.LSLS = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
+            self.SLSL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
+            self.LSSL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
+            self.SLLS = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
 
         for i in range(self.nshls):
             di = _cint.CINTcgto_spinor(i, self.bas)
@@ -252,6 +265,65 @@ class DHF:
                             self.SSSS[
                                 x : x + di, y : y + dj, z : z + dk, w : w + dl
                             ] = ssss
+                        if self.with_gaunt is True:
+                            lsls = np.zeros((di, dj, dk, dl), np.complex128, order="F")
+                            slsl = np.zeros((di, dj, dk, dl), np.complex128, order="F")
+                            lssl = np.zeros((di, dj, dk, dl), np.complex128, order="F")
+                            slls = np.zeros((di, dj, dk, dl), np.complex128, order="F")
+
+                            _cint.cint2e_ssp1ssp2(
+                                lsls,
+                                (ctypes.c_int * 4)(i, j, k, l),
+                                self.atm,
+                                self.natm,
+                                self.bas,
+                                self.nshls,
+                                self.env,
+                                ctypes.c_void_p(0),
+                            )
+                            _cint.cint2e_sps1sps2(
+                                slsl,
+                                (ctypes.c_int * 4)(i, j, k, l),
+                                self.atm,
+                                self.natm,
+                                self.bas,
+                                self.nshls,
+                                self.env,
+                                ctypes.c_void_p(0),
+                            )
+                            _cint.cint2e_ssp1sps2(
+                                lssl,
+                                (ctypes.c_int * 4)(i, j, k, l),
+                                self.atm,
+                                self.natm,
+                                self.bas,
+                                self.nshls,
+                                self.env,
+                                ctypes.c_void_p(0),
+                            )
+                            _cint.cint2e_sps1ssp2(
+                                slls,
+                                (ctypes.c_int * 4)(i, j, k, l),
+                                self.atm,
+                                self.natm,
+                                self.bas,
+                                self.nshls,
+                                self.env,
+                                ctypes.c_void_p(0),
+                            )
+
+                            self.LSLS[
+                                x : x + di, y : y + dj, z : z + dk, w : w + dl
+                            ] = lsls
+                            self.SLSL[
+                                x : x + di, y : y + dj, z : z + dk, w : w + dl
+                            ] = slsl
+                            self.LSSL[
+                                x : x + di, y : y + dj, z : z + dk, w : w + dl
+                            ] = lssl
+                            self.SLLS[
+                                x : x + di, y : y + dj, z : z + dk, w : w + dl
+                            ] = slls
 
         # Compute core Hamiltonian and orthogonalization matrix
         print("Integral computation completed.")
@@ -280,15 +352,15 @@ class DHF:
         vk = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
 
         dm = D.copy()
-        dm1 = dm[:n2c, :n2c].copy()
-        dm2 = dm[n2c:, n2c:].copy()
-        dm3 = dm[n2c:, :n2c].copy()
-        dm4 = dm[:n2c, n2c:].copy()
+        dmll = dm[:n2c, :n2c].copy()
+        dmss = dm[n2c:, n2c:].copy()
+        dmsl = dm[n2c:, :n2c].copy()
+        dmls = dm[:n2c, n2c:].copy()
 
-        J1 = np.einsum("ijkl,lk->ij", self.SSLL, dm1, optimize=True) * c1**2  # lk->s2ij
-        J2 = np.einsum("klij,lk->ij", self.SSLL, dm2, optimize=True) * c1**2  # ji->s2kl
-        K1 = np.einsum("ilkj,lk->ij", self.SSLL, dm3, optimize=True) * c1**2  # jk->s1il
-        K2 = np.einsum("kjil,lk->ij", self.SSLL, dm4, optimize=True) * c1**2  # li->s1kj
+        J1 = np.einsum("ijkl,lk->ij", self.SSLL, dmll, optimize=True) * c1**2
+        J2 = np.einsum("klij,lk->ij", self.SSLL, dmss, optimize=True) * c1**2
+        K1 = np.einsum("ilkj,lk->ij", self.SSLL, dmsl, optimize=True) * c1**2
+        K2 = np.einsum("kjil,lk->ij", self.SSLL, dmls, optimize=True) * c1**2
 
         vj[n2c:, n2c:] = J1
         vj[:n2c, :n2c] = J2
@@ -313,6 +385,42 @@ class DHF:
 
         return vj, vk
 
+    def _call_veff_gaunt(self, D: npt.NDArray):
+        n2c = self.n2c
+        c1 = 0.5 / LIGHT_SPEED
+        vj = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
+        vk = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
+
+        dm = D.copy()
+        dmll = dm[:n2c, :n2c].copy()
+        dmss = dm[n2c:, n2c:].copy()
+        dmsl = dm[n2c:, :n2c].copy()
+        dmls = dm[:n2c, n2c:].copy()
+
+        Kss = np.einsum("ilkj,lk->ij", self.SLLS, dmll, optimize=True) * c1**2
+        Kll = np.einsum("ilkj,lk->ij", self.LSSL, dmss, optimize=True) * c1**2
+        Kls = np.einsum("ilkj,lk->ij", self.LSLS, dmsl, optimize=True) * c1**2
+        Ksl = np.einsum("ilkj,lk->ij", self.SLSL, dmls, optimize=True) * c1**2
+
+        Jls = (
+            np.einsum("ijkl,lk->ij", self.LSSL, dmls, optimize=True)
+            + np.einsum("ijkl,lk->ij", self.LSLS, dmsl, optimize=True)
+        ) * c1**2
+        Jsl = (
+            np.einsum("ijkl,lk->ij", self.SLLS, dmsl, optimize=True)
+            + np.einsum("ijkl,lk->ij", self.SLSL, dmls, optimize=True)
+        ) * c1**2
+
+        vk[:n2c, :n2c] = Kll
+        vk[n2c:, n2c:] = Kss
+        vk[:n2c, n2c:] = Kls
+        vk[n2c:, :n2c] = Ksl
+
+        vj[:n2c, n2c:] = Jls
+        vj[n2c:, :n2c] = Jsl
+
+        return vj, vk
+
     def get_vhf(self, D: npt.NDArray) -> npt.NDArray:
         """Build Fock matrix from density matrix using precomputed integrals."""
 
@@ -327,6 +435,11 @@ class DHF:
             vj += J
             vk += K
 
+            if self.with_gaunt:
+                J, K = self._call_veff_gaunt(D)
+                vj -= J
+                vk -= K
+
         else:  # SSSS
             vj, vk = self._call_veff_SSLL(D)
             J, K = self._call_veff_LLLL(D)
@@ -337,6 +450,11 @@ class DHF:
 
             vj += J
             vk += K
+
+            if self.with_gaunt:
+                J, K = self._call_veff_gaunt(D)
+                vj -= J
+                vk -= K
 
         return vj - vk
 
@@ -463,15 +581,16 @@ def main():
 
     E_our = mf.kernel()
 
-    # ref = mol.intor("int2e_spinor").reshape(mf.n2c, mf.n2c, mf.n2c, mf.n2c)
-    #
-    # print((ref - mf.LLLL).max())
+    # ref = mol.intor("int2e_ssp1sps2_spinor").reshape(mf.n2c, mf.n2c, mf.n2c, mf.n2c)
+    # print(ref.shape)
+    # print(np.abs(ref - mf.LSSL).max())
     # Compare with PySCF
     mf_pyscf = scf.DHF(mol)
 
     # mf_pyscf.verbose = 5
     mf_pyscf.init_guess = "1e"
     mf_pyscf.with_ssss = True
+    mf_pyscf.with_gaunt = True
     E_pyscf = mf_pyscf.kernel()
 
     # print("E(Dirac-Coulomb) = %.15g" % mf_pyscf.kernel())
