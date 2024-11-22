@@ -196,7 +196,9 @@ class DHF:
         _cint.cint2e_spsp1spsp2.argtypes = argtypes_2e  # (SS|SS)
         # Gaunt
         _cint.cint2e_ssp1ssp2.argtypes = argtypes_2e  # (LσS|LσS)
+        # _cint.cint2e_sps1sps2.argtypes = argtypes_2e  # (SσL|SσL)
         _cint.cint2e_ssp1sps2.argtypes = argtypes_2e  # (LσS|SσL)
+        # _cint.cint2e_sps1ssp2.argtypes = argtypes_2e  # (SσL|LσS)
 
         self.LLLL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
         self.SSLL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
@@ -265,7 +267,9 @@ class DHF:
                             ] = ssss
                         if self.with_gaunt is True:
                             lsls = np.zeros((di, dj, dk, dl), np.complex128, order="F")
+                            # slsl = np.zeros((di, dj, dk, dl), np.complex128, order="F")
                             lssl = np.zeros((di, dj, dk, dl), np.complex128, order="F")
+                            # slls = np.zeros((di, dj, dk, dl), np.complex128, order="F")
 
                             _cint.cint2e_ssp1ssp2(
                                 lsls,
@@ -278,6 +282,17 @@ class DHF:
                                 ctypes.c_void_p(0),
                             )
 
+                            # _cint.cint2e_sps1sps2(
+                            #     slsl,
+                            #     (ctypes.c_int * 4)(i, j, k, l),
+                            #     self.atm,
+                            #     self.natm,
+                            #     self.bas,
+                            #     self.nshls,
+                            #     self.env,
+                            #     ctypes.c_void_p(0),
+                            # )
+
                             _cint.cint2e_ssp1sps2(
                                 lssl,
                                 (ctypes.c_int * 4)(i, j, k, l),
@@ -289,12 +304,30 @@ class DHF:
                                 ctypes.c_void_p(0),
                             )
 
+                            # _cint.cint2e_sps1ssp2(
+                            #     slls,
+                            #     (ctypes.c_int * 4)(i, j, k, l),
+                            #     self.atm,
+                            #     self.natm,
+                            #     self.bas,
+                            #     self.nshls,
+                            #     self.env,
+                            #     ctypes.c_void_p(0),
+                            # )
+
                             self.LSLS[
                                 x : x + di, y : y + dj, z : z + dk, w : w + dl
                             ] = lsls
+                            # self.SLSL[
+                            #     x : x + di, y : y + dj, z : z + dk, w : w + dl
+                            # ] = slsl
                             self.LSSL[
                                 x : x + di, y : y + dj, z : z + dk, w : w + dl
                             ] = lssl
+                            # self.SLLS[
+                            #     x : x + di, y : y + dj, z : z + dk, w : w + dl
+                            # ] = slls
+
         # Compute core Hamiltonian and orthogonalization matrix
         print("Integral computation completed.")
 
