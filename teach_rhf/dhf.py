@@ -192,7 +192,9 @@ class DHF:
 
         self.LLLL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
         self.SSLL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
-        self.SSSS = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
+
+        if self.with_ssss is True:
+            self.SSSS = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
 
         for i in range(self.nshls):
             di = _cint.CINTcgto_spinor(i, self.bas)
@@ -209,7 +211,7 @@ class DHF:
 
                         llll = np.zeros((di, dj, dk, dl), np.complex128, order="F")
                         ssll = np.zeros((di, dj, dk, dl), np.complex128, order="F")
-                        ssss = np.zeros((di, dj, dk, dl), np.complex128, order="F")
+
                         _cint.cint2e(
                             llll,
                             (ctypes.c_int * 4)(i, j, k, l),
@@ -230,101 +232,111 @@ class DHF:
                             self.env,
                             ctypes.c_void_p(0),
                         )
-                        _cint.cint2e_spsp1spsp2(
-                            ssss,
-                            (ctypes.c_int * 4)(i, j, k, l),
-                            self.atm,
-                            self.natm,
-                            self.bas,
-                            self.nshls,
-                            self.env,
-                            ctypes.c_void_p(0),
-                        )
+
                         self.LLLL[x : x + di, y : y + dj, z : z + dk, w : w + dl] = llll
                         self.SSLL[x : x + di, y : y + dj, z : z + dk, w : w + dl] = ssll
-                        self.SSSS[x : x + di, y : y + dj, z : z + dk, w : w + dl] = ssss
+
+                        if self.with_ssss is True:
+                            ssss = np.zeros((di, dj, dk, dl), np.complex128, order="F")
+
+                            _cint.cint2e_spsp1spsp2(
+                                ssss,
+                                (ctypes.c_int * 4)(i, j, k, l),
+                                self.atm,
+                                self.natm,
+                                self.bas,
+                                self.nshls,
+                                self.env,
+                                ctypes.c_void_p(0),
+                            )
+                            self.SSSS[
+                                x : x + di, y : y + dj, z : z + dk, w : w + dl
+                            ] = ssss
+
         # Compute core Hamiltonian and orthogonalization matrix
         print("Integral computation completed.")
 
     def build_init_guess(self):
         return self.make_density(self.H)
 
-    def get_vhf(self, D: npt.NDArray) -> npt.NDArray:
-        """Build Fock matrix from density matrix using precomputed integrals."""
-
+    def _call_veff_LLLL(self, D: npt.NDArray):
         n2c = self.n2c
-        coulomb_level = self._coulomb_level
+        vj = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
+        vk = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
+
+        dms = D[:n2c, :n2c].copy()
+        J = np.einsum("ijkl,lk->ij", self.LLLL, dms, optimize=True)
+        K = np.einsum("ilkj,lk->ij", self.LLLL, dms, optimize=True)
+
+        vj[:n2c, :n2c] = J
+        vk[:n2c, :n2c] = K
+
+        return vj, vk
+
+    def _call_veff_SSLL(self, D: npt.NDArray):
+        n2c = self.n2c
+        c1 = 0.5 / LIGHT_SPEED
+        vj = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
+        vk = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
+
+        dm = D.copy()
+        dm1 = dm[:n2c, :n2c].copy()
+        dm2 = dm[n2c:, n2c:].copy()
+        dm3 = dm[n2c:, :n2c].copy()
+        dm4 = dm[:n2c, n2c:].copy()
+
+        J1 = np.einsum("ijkl,lk->ij", self.SSLL, dm1, optimize=True) * c1**2  # lk->s2ij
+        J2 = np.einsum("klij,lk->ij", self.SSLL, dm2, optimize=True) * c1**2  # ji->s2kl
+        K1 = np.einsum("ilkj,lk->ij", self.SSLL, dm3, optimize=True) * c1**2  # jk->s1il
+        K2 = np.einsum("kjil,lk->ij", self.SSLL, dm4, optimize=True) * c1**2  # li->s1kj
+
+        vj[n2c:, n2c:] = J1
+        vj[:n2c, :n2c] = J2
+        vk[n2c:, :n2c] = K1
+        vk[:n2c, n2c:] = K2
+
+        return vj, vk
+
+    def _call_veff_SSSS(self, D: npt.NDArray):
+        n2c = self.n2c
         c1 = 0.5 / LIGHT_SPEED
 
         vj = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
         vk = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
+
+        dms = D[n2c:, n2c:].copy()
+        J = np.einsum("ijkl,lk->ij", self.SSSS, dms, optimize=True) * c1**4
+        K = np.einsum("ilkj,lk->ij", self.SSSS, dms, optimize=True) * c1**4
+
+        vj[n2c:, n2c:] += J
+        vk[n2c:, n2c:] += K
+
+        return vj, vk
+
+    def get_vhf(self, D: npt.NDArray) -> npt.NDArray:
+        """Build Fock matrix from density matrix using precomputed integrals."""
+
+        coulomb_level = self._coulomb_level
+
         if coulomb_level.upper() == "LLLL":
-            dms = D[:n2c, :n2c].copy()
-            J = np.einsum("ijkl,lk->ij", self.LLLL, dms, optimize=True)
-            K = np.einsum("ilkj,lk->ij", self.LLLL, dms, optimize=True)
+            vj, vk = self._call_veff_LLLL(D)
 
-            vj[:n2c, :n2c] = J
-            vk[:n2c, :n2c] = K
         elif coulomb_level.upper() == "SSLL" or coulomb_level.upper() == "LLSS":
-            dm = D.copy()
-            dm1 = dm[:n2c, :n2c].copy()
-            dm2 = dm[n2c:, n2c:].copy()
-            dm3 = dm[n2c:, :n2c].copy()
-            dm4 = dm[:n2c, n2c:].copy()
+            vj, vk = self._call_veff_SSLL(D)
+            J, K = self._call_veff_LLLL(D)
+            vj += J
+            vk += K
 
-            J1 = (
-                np.einsum("ijkl,lk->ij", self.SSLL, dm1, optimize=True) * c1**2
-            )  # lk->s2ij
-            J2 = (
-                np.einsum("klij,lk->ij", self.SSLL, dm2, optimize=True) * c1**2
-            )  # ji->s2kl
-            K1 = (
-                np.einsum("ilkj,lk->ij", self.SSLL, dm3, optimize=True) * c1**2
-            )  # jk->s1il
-            K2 = (
-                np.einsum("kjil,lk->ij", self.SSLL, dm4, optimize=True) * c1**2
-            )  # li->s1kj
-
-            dms = D[:n2c, :n2c].copy()
-            J = np.einsum("ijkl,lk->ij", self.LLLL, dms, optimize=True)
-            K = np.einsum("ilkj,lk->ij", self.LLLL, dms, optimize=True)
-
-            vj[n2c:, n2c:] = J1
-            vj[:n2c, :n2c] = J2
-            vk[n2c:, :n2c] = K1
-            vk[:n2c, n2c:] = K2
-
-            vj[:n2c, :n2c] += J
-            vk[:n2c, :n2c] += K
         else:  # SSSS
-            dm = D.copy()
-            dm1 = dm[:n2c, :n2c].copy()
-            dm2 = dm[n2c:, n2c:].copy()
-            dm3 = dm[n2c:, :n2c].copy()
-            dm4 = dm[:n2c, n2c:].copy()
+            vj, vk = self._call_veff_SSLL(D)
+            J, K = self._call_veff_LLLL(D)
+            vj += J
+            vk += K
 
-            J1 = np.einsum("ijkl,lk->ij", self.SSLL, dm1, optimize=True) * c1**2
-            J2 = np.einsum("klij,lk->ij", self.SSLL, dm2, optimize=True) * c1**2
-            K1 = np.einsum("ilkj,lk->ij", self.SSLL, dm3, optimize=True) * c1**2
-            K2 = np.einsum("kjil,lk->ij", self.SSLL, dm4, optimize=True) * c1**2
+            J, K = self._call_veff_SSSS(D)
 
-            dms = D[:n2c, :n2c].copy()
-            J = np.einsum("ijkl,lk->ij", self.LLLL, dms, optimize=True)
-            K = np.einsum("ilkj,lk->ij", self.LLLL, dms, optimize=True)
-            vj[n2c:, n2c:] = J1
-            vj[:n2c, :n2c] = J2
-            vk[n2c:, :n2c] = K1
-            vk[:n2c, n2c:] = K2
-
-            vj[:n2c, :n2c] += J
-            vk[:n2c, :n2c] += K
-
-            dms = D[n2c:, n2c:].copy()
-            J = np.einsum("ijkl,lk->ij", self.SSSS, dms, optimize=True) * c1**4
-            K = np.einsum("ilkj,lk->ij", self.SSSS, dms, optimize=True) * c1**4
-
-            vj[n2c:, n2c:] += J
-            vk[n2c:, n2c:] += K
+            vj += J
+            vk += K
 
         return vj - vk
 
