@@ -192,11 +192,11 @@ class DHF:
         print("Computing ERI integrals...")
         _cint.cint2e.argtypes = argtypes_2e  # (LL|LL)
         _cint.cint2e_spsp1.argtypes = argtypes_2e  # (SS|LL)
+        # (SS|SS)
         _cint.cint2e_spsp1spsp2.argtypes = argtypes_2e  # (SS|SS)
+        # Gaunt
         _cint.cint2e_ssp1ssp2.argtypes = argtypes_2e  # (LσS|LσS)
-        _cint.cint2e_sps1sps2.argtypes = argtypes_2e  # (SσL|SσL)
         _cint.cint2e_ssp1sps2.argtypes = argtypes_2e  # (LσS|SσL)
-        _cint.cint2e_sps1ssp2.argtypes = argtypes_2e  # (SσL|LσS)
 
         self.LLLL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
         self.SSLL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
@@ -205,9 +205,7 @@ class DHF:
             self.SSSS = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
         if self.with_gaunt is True:
             self.LSLS = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
-            self.SLSL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
             self.LSSL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
-            self.SLLS = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
 
         for i in range(self.nshls):
             di = _cint.CINTcgto_spinor(i, self.bas)
@@ -267,9 +265,7 @@ class DHF:
                             ] = ssss
                         if self.with_gaunt is True:
                             lsls = np.zeros((di, dj, dk, dl), np.complex128, order="F")
-                            slsl = np.zeros((di, dj, dk, dl), np.complex128, order="F")
                             lssl = np.zeros((di, dj, dk, dl), np.complex128, order="F")
-                            slls = np.zeros((di, dj, dk, dl), np.complex128, order="F")
 
                             _cint.cint2e_ssp1ssp2(
                                 lsls,
@@ -281,28 +277,9 @@ class DHF:
                                 self.env,
                                 ctypes.c_void_p(0),
                             )
-                            _cint.cint2e_sps1sps2(
-                                slsl,
-                                (ctypes.c_int * 4)(i, j, k, l),
-                                self.atm,
-                                self.natm,
-                                self.bas,
-                                self.nshls,
-                                self.env,
-                                ctypes.c_void_p(0),
-                            )
+
                             _cint.cint2e_ssp1sps2(
                                 lssl,
-                                (ctypes.c_int * 4)(i, j, k, l),
-                                self.atm,
-                                self.natm,
-                                self.bas,
-                                self.nshls,
-                                self.env,
-                                ctypes.c_void_p(0),
-                            )
-                            _cint.cint2e_sps1ssp2(
-                                slls,
                                 (ctypes.c_int * 4)(i, j, k, l),
                                 self.atm,
                                 self.natm,
@@ -315,16 +292,9 @@ class DHF:
                             self.LSLS[
                                 x : x + di, y : y + dj, z : z + dk, w : w + dl
                             ] = lsls
-                            self.SLSL[
-                                x : x + di, y : y + dj, z : z + dk, w : w + dl
-                            ] = slsl
                             self.LSSL[
                                 x : x + di, y : y + dj, z : z + dk, w : w + dl
                             ] = lssl
-                            self.SLLS[
-                                x : x + di, y : y + dj, z : z + dk, w : w + dl
-                            ] = slls
-
         # Compute core Hamiltonian and orthogonalization matrix
         print("Integral computation completed.")
 
@@ -360,7 +330,8 @@ class DHF:
         J1 = np.einsum("ijkl,lk->ij", self.SSLL, dmll, optimize=True) * c1**2
         J2 = np.einsum("klij,lk->ij", self.SSLL, dmss, optimize=True) * c1**2
         K1 = np.einsum("ilkj,lk->ij", self.SSLL, dmsl, optimize=True) * c1**2
-        K2 = np.einsum("kjil,lk->ij", self.SSLL, dmls, optimize=True) * c1**2
+        # K2 = np.einsum("kjil,lk->ij", self.SSLL, dmls, optimize=True) * c1**2
+        K2 = K1.transpose().conj()
 
         vj[n2c:, n2c:] = J1
         vj[:n2c, :n2c] = J2
@@ -397,19 +368,22 @@ class DHF:
         dmsl = dm[n2c:, :n2c].copy()
         dmls = dm[:n2c, n2c:].copy()
 
-        Kss = np.einsum("ilkj,lk->ij", self.SLLS, dmll, optimize=True) * c1**2
+        # Kss = np.einsum("ilkj,lk->ij", self.SLLS, dmll, optimize=True) * c1**2
         Kll = np.einsum("ilkj,lk->ij", self.LSSL, dmss, optimize=True) * c1**2
+        Kss = np.einsum("kjil,lk->ij", self.LSSL, dmll, optimize=True) * c1**2
         Kls = np.einsum("ilkj,lk->ij", self.LSLS, dmsl, optimize=True) * c1**2
-        Ksl = np.einsum("ilkj,lk->ij", self.SLSL, dmls, optimize=True) * c1**2
+        # Ksl = np.einsum("ilkj,lk->ij", self.SLSL, dmls, optimize=True) * c1**2
+        Ksl = Kls.transpose().conj()
 
         Jls = (
             np.einsum("ijkl,lk->ij", self.LSSL, dmls, optimize=True)
             + np.einsum("ijkl,lk->ij", self.LSLS, dmsl, optimize=True)
         ) * c1**2
-        Jsl = (
-            np.einsum("ijkl,lk->ij", self.SLLS, dmsl, optimize=True)
-            + np.einsum("ijkl,lk->ij", self.SLSL, dmls, optimize=True)
-        ) * c1**2
+        # Jsl = (
+        #     np.einsum("ijkl,lk->ij", self.SLLS, dmsl, optimize=True)
+        #     + np.einsum("ijkl,lk->ij", self.SLSL, dmls, optimize=True)
+        # ) * c1**2
+        Jsl = Jls.transpose().conj()
 
         vk[:n2c, :n2c] = Kll
         vk[n2c:, n2c:] = Kss
