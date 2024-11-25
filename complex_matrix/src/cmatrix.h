@@ -15,6 +15,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+namespace cmatrix {
 
 class CMatrix {
 private:
@@ -62,5 +63,6 @@ public:
     std::complex<double>* data_ptr() { return data.data(); }
     const std::complex<double>* data_ptr() const { return data.data(); }
 };
+}
 
 #endif // CMATRIX_H

@@ -27,7 +27,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
 endif()
 
 # --------------------> intel Math Kernel Library (required) <--------------------
-option(USE_MKL "Use Intel MKL (default ON). If OFF, use OpenBLAS." ON)
+option(USE_MKL "Use Intel MKL (default ON). If OFF, use OpenBLAS." OFF)
 
 if(USE_MKL)
   add_definitions(-D__USE_MKL__)
@@ -116,6 +116,15 @@ if(USE_MKL)
   set(MATHLIBS ${MKLLIB})
   # --------------------> OpenBLAS <--------------------
 else()
+  option(OPENBLAS_USE_OPENMP "Enable OpenMP in OpenBLAS" ON)
+
+  if (OPENBLAS_USE_OPENMP)
+    set(USE_OPENMP_OPTION "-DUSE_OPENMP=ON")
+    message("-> OpenBLAS will be built with OpenMP support.")
+  else()
+    set(USE_OPENMP_OPTION "-DUSE_OPENMP=OFF")
+    message("-> OpenBLAS will be built without OpenMP support.")
+  endif()
   ExternalProject_Add(
     openblas
     PREFIX ${CMAKE_BINARY_DIR}
@@ -132,7 +141,7 @@ else()
       -DTARGET=GENERIC
       -DUSE_LAPACK=ON
       -DUSE_THREAD=OFF
-      -DUSE_OPENMP=OFF
+      ${USE_OPENMP_OPTION}
       -DCMAKE_C_FLAGS="-O3"
   )
 
@@ -170,7 +179,10 @@ message("-> Using quadmath library: ${QUADMATH_LIB}")
 # include path
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
-add_executable(CMATRIX src/main.cpp src/cmatrix.cpp)
+file(GLOB SOURCES "src/*.cpp")
+file(GLOB SOURCES_C "src/*.c")
+set_source_files_properties(${SOURCES_C} PROPERTIES LANGUAGE C)
+add_executable(CMATRIX ${SOURCES} ${SOURCES_C})
 
 add_dependencies(${PROJECT_NAME} cint)
 

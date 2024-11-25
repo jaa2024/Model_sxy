@@ -2,6 +2,7 @@
 #include <cassert>
 #include <iostream>
 
+using namespace cmatrix;
 CMatrix::CMatrix(int rows, int cols, bool rowMajor)
     : rows(rows), cols(cols), isRowMajor(rowMajor), data(rows * cols, std::complex<double>(0.0, 0.0)), trans_(CblasNoTrans) { }
 
