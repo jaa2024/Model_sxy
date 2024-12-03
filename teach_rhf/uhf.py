@@ -58,7 +58,7 @@ class UHF:
         # Diis parameter
         self.DIIS = True
         self.diis_space = 12
-        self.diis_start = 2
+        self.diis_start = 4
         self.A = None  # Overlap orthogonalization matrix
         self.F_list = []
         self.DIIS_list = []
@@ -288,8 +288,10 @@ class UHF:
     ) -> tuple[npt.NDArray, npt.NDArray]:
         Fa, Fb = F
         Da, Db = D
-        res_a = self.A @ (Fa @ Da @ self.S - self.S @ Da @ Fa) @ self.A
-        res_b = self.A @ (Fb @ Db @ self.S - self.S @ Db @ Fb) @ self.A
+        FDSa = Fa @ Da @ self.S
+        FDSb = Fb @ Db @ self.S
+        res_a = self.A @ (FDSa - FDSa.T) @ self.A
+        res_b = self.A @ (FDSb - FDSb.T) @ self.A
         return res_a, res_b
 
     def apply_diis(
@@ -325,7 +327,7 @@ class UHF:
         return Fa_new, Fb_new
 
 
-    def kernel(self, max_iter: int = 100, conv_tol: float = 1e-5) -> float:
+    def kernel(self, max_iter: int = 1000, conv_tol: float = 1e-8) -> float:
         """Run the SCF procedure with precomputed integrals."""
         # Precompute all integrals before starting SCF
         self._compute_all_integrals()
@@ -380,11 +382,12 @@ class UHF:
 def main():
     # Example usage
     # mol = gto.M(atom="O 0 0 0; O 0 0 1.2", basis="ccpvdz", spin=2)
-    mol = gto.M(atom="Co 0 0 0; Cl 2.2 0 0; Cl -2.2 0 0; Cl 0 2.2 0; Cl 0 -2.2 0", 
-                charge = -2, basis="ccpvdz", spin=3)
+    mol = gto.M(atom="C 0 0 0; F 0 1.29715400 0; F -1.12336800 -0.64857700 0; F 1.12336800 -0.64857700 0", 
+                basis="ccpvdz", spin=1)
 
     # Compare with PySCF
     mf_pyscf = scf.UHF(mol)
+    mf_pyscf.init_guess = '1e'
     E_pyscf = mf_pyscf.kernel()
     print(f"\nPySCF energy: {E_pyscf:.10f}")
 
