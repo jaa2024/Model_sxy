@@ -288,10 +288,10 @@ class UHF:
     ) -> tuple[npt.NDArray, npt.NDArray]:
         Fa, Fb = F
         Da, Db = D
-        FDSa = Fa @ Da @ self.S
-        FDSb = Fb @ Db @ self.S
-        res_a = self.A @ (FDSa - FDSa.T) @ self.A
-        res_b = self.A @ (FDSb - FDSb.T) @ self.A
+        FDSa = np.dot(np.dot(Fa, Da), self.S)
+        FDSb = np.dot(np.dot(Fb, Db), self.S)
+        res_a = np.dot(np.dot(self.A, (FDSa - FDSa.T)), self.A)
+        res_b = np.dot(np.dot(self.A, (FDSb - FDSb.T)), self.A)
         return res_a, res_b
 
     def apply_diis(
