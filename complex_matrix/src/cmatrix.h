@@ -25,12 +25,7 @@ private:
     int rows, cols;
     std::vector<std::complex<double>> data;
     bool isRowMajor;
-
-#ifdef __USE_MKL__
     CBLAS_TRANSPOSE trans_; // MKL
-#else
-    CBLAS_TRANSPOSE trans_; // OpenBLAS
-#endif
 
 public:
     CMatrix(int rows, int cols, bool rowMajor = false);

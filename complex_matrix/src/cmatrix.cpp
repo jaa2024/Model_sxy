@@ -323,7 +323,10 @@ std::pair<std::vector<double>, CMatrix> CMatrix::eigh(const CMatrix& matrix)
     }
 
     // Define types based on BLAS implementation
-#ifndef __USE_MKL__
+
+#ifdef __USE_MKL__
+
+#else
     using lapack_int = int;
     using complex_t = double _Complex;
 #endif
@@ -351,9 +354,9 @@ std::pair<std::vector<double>, CMatrix> CMatrix::eigh(const CMatrix& matrix)
 
 #ifdef __USE_MKL__
     zheev_(&jobz, &uplo, &n,
-        reinterpret_cast<complex_t*>(work_matrix.data.data()),
+        reinterpret_cast<MKL_Complex16*>(work_matrix.data.data()),
         &n, eigenvalues.data(),
-        reinterpret_cast<complex_t*>(&work_size), &lwork,
+        reinterpret_cast<MKL_Complex16*>(&work_size), &lwork,
         rwork.data(), &info);
 #else
     zheev_(&jobz, &uplo, &n,
@@ -375,9 +378,9 @@ std::pair<std::vector<double>, CMatrix> CMatrix::eigh(const CMatrix& matrix)
     // Compute eigenvalues and eigenvectors
 #ifdef __USE_MKL__
     zheev_(&jobz, &uplo, &n,
-        reinterpret_cast<complex_t*>(work_matrix.data.data()),
+        reinterpret_cast<MKL_Complex16*>(work_matrix.data.data()),
         &n, eigenvalues.data(),
-        reinterpret_cast<complex_t*>(work.data()), &lwork,
+        reinterpret_cast<MKL_Complex16*>(work.data()), &lwork,
         rwork.data(), &info);
 #else
     zheev_(&jobz, &uplo, &n,

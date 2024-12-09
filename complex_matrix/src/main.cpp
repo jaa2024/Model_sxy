@@ -49,12 +49,14 @@ auto main() -> int
     A(5, 3) = { -0.24112506, -0.36214372 };
     A(5, 4) = { 0.38562695, 0.18593323 };
     A(5, 5) = { -0.98404336, 0.0 };
-    A.print();
+    // A.print();
     auto eig = cmatrix::CMatrix::eigh(A);
     auto lambda = eig.first;
-    for (auto&& i : lambda) {
-        std::cout << std::format("{:.5f}", i) << " ";
-    }
+    // for (auto&& i : lambda) {
+    //     std::cout << std::format("{:.5f}", i) << " ";
+    // }
 
+    cint::Integral test;
+    test.calc_spsp();
     return 0;
 }

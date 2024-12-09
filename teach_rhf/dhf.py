@@ -73,14 +73,15 @@ class DHF:
         self.SSSS = None
         # Gaunt Breit integral
 
-        self.with_gaunt = True  # TODO
-        self.with_briet = False  # not support!
+        self.with_gaunt = False
+        self.with_breit = False
         self.LSLS = None
         self.SLSL = None
         self.LSSL = None
         self.SLLS = None
 
-        self.BREIT = None  # not support!
+        self.B_LSSL = None
+        self.B_LSLS = None
 
         # Nuclear repulsion energy
         self.E_nn = self._compute_nuclear_repulsion()
@@ -177,7 +178,6 @@ class DHF:
                 vn[y : y + dj, x : x + di] = buf_vn.conj().T
                 wn[y : y + dj, x : x + di] = buf_wn.conj().T
                 s[y : y + dj, x : x + di] = buf_s.conj().T
-
         self.H = np.zeros((n4c, n4c), np.complex128)
         self.H[:n2c, :n2c] = vn
         self.H[n2c:, :n2c] = t * 0.5
@@ -196,18 +196,22 @@ class DHF:
         _cint.cint2e_spsp1spsp2.argtypes = argtypes_2e  # (SS|SS)
         # Gaunt
         _cint.cint2e_ssp1ssp2.argtypes = argtypes_2e  # (LσS|LσS)
-        # _cint.cint2e_sps1sps2.argtypes = argtypes_2e  # (SσL|SσL)
         _cint.cint2e_ssp1sps2.argtypes = argtypes_2e  # (LσS|SσL)
-        # _cint.cint2e_sps1ssp2.argtypes = argtypes_2e  # (SσL|LσS)
+        # Berit
+        _cint.cint2e_breit_ssp1ssp2_spinor.argtypes = argtypes_2e  # (LσS|LσS)
+        _cint.cint2e_breit_ssp1sps2_spinor.argtypes = argtypes_2e  # (LσS|SσL)
 
         self.LLLL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
         self.SSLL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
 
         if self.with_ssss is True:
             self.SSSS = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
-        if self.with_gaunt is True:
+        if self.with_gaunt is True and self.with_breit is False:
             self.LSLS = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
             self.LSSL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
+        if self.with_breit is True:
+            self.B_LSLS = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
+            self.B_LSSL = np.zeros((n2c, n2c, n2c, n2c), np.complex128)
 
         for i in range(self.nshls):
             di = _cint.CINTcgto_spinor(i, self.bas)
@@ -265,11 +269,9 @@ class DHF:
                             self.SSSS[
                                 x : x + di, y : y + dj, z : z + dk, w : w + dl
                             ] = ssss
-                        if self.with_gaunt is True:
+                        if self.with_gaunt is True and self.with_breit is False:
                             lsls = np.zeros((di, dj, dk, dl), np.complex128, order="F")
-                            # slsl = np.zeros((di, dj, dk, dl), np.complex128, order="F")
                             lssl = np.zeros((di, dj, dk, dl), np.complex128, order="F")
-                            # slls = np.zeros((di, dj, dk, dl), np.complex128, order="F")
 
                             _cint.cint2e_ssp1ssp2(
                                 lsls,
@@ -282,17 +284,6 @@ class DHF:
                                 ctypes.c_void_p(0),
                             )
 
-                            # _cint.cint2e_sps1sps2(
-                            #     slsl,
-                            #     (ctypes.c_int * 4)(i, j, k, l),
-                            #     self.atm,
-                            #     self.natm,
-                            #     self.bas,
-                            #     self.nshls,
-                            #     self.env,
-                            #     ctypes.c_void_p(0),
-                            # )
-
                             _cint.cint2e_ssp1sps2(
                                 lssl,
                                 (ctypes.c_int * 4)(i, j, k, l),
@@ -304,31 +295,48 @@ class DHF:
                                 ctypes.c_void_p(0),
                             )
 
-                            # _cint.cint2e_sps1ssp2(
-                            #     slls,
-                            #     (ctypes.c_int * 4)(i, j, k, l),
-                            #     self.atm,
-                            #     self.natm,
-                            #     self.bas,
-                            #     self.nshls,
-                            #     self.env,
-                            #     ctypes.c_void_p(0),
-                            # )
-
                             self.LSLS[
                                 x : x + di, y : y + dj, z : z + dk, w : w + dl
                             ] = lsls
-                            # self.SLSL[
-                            #     x : x + di, y : y + dj, z : z + dk, w : w + dl
-                            # ] = slsl
                             self.LSSL[
                                 x : x + di, y : y + dj, z : z + dk, w : w + dl
                             ] = lssl
-                            # self.SLLS[
-                            #     x : x + di, y : y + dj, z : z + dk, w : w + dl
-                            # ] = slls
 
+                        if self.with_breit is True:
+                            b_lsls = np.zeros(
+                                (di, dj, dk, dl), np.complex128, order="F"
+                            )
+                            b_lssl = np.zeros(
+                                (di, dj, dk, dl), np.complex128, order="F"
+                            )
+                            _cint.cint2e_breit_ssp1ssp2_spinor(
+                                b_lsls,
+                                (ctypes.c_int * 4)(i, j, k, l),
+                                self.atm,
+                                self.natm,
+                                self.bas,
+                                self.nshls,
+                                self.env,
+                                ctypes.c_void_p(0),
+                            )
+                            _cint.cint2e_breit_ssp1sps2_spinor(
+                                b_lssl,
+                                (ctypes.c_int * 4)(i, j, k, l),
+                                self.atm,
+                                self.natm,
+                                self.bas,
+                                self.nshls,
+                                self.env,
+                                ctypes.c_void_p(0),
+                            )
+                            self.B_LSLS[
+                                x : x + di, y : y + dj, z : z + dk, w : w + dl
+                            ] = b_lsls
+                            self.B_LSSL[
+                                x : x + di, y : y + dj, z : z + dk, w : w + dl
+                            ] = b_lssl
         # Compute core Hamiltonian and orthogonalization matrix
+
         print("Integral computation completed.")
 
     def build_init_guess(self):
@@ -401,21 +409,15 @@ class DHF:
         dmsl = dm[n2c:, :n2c].copy()
         dmls = dm[:n2c, n2c:].copy()
 
-        # Kss = np.einsum("ilkj,lk->ij", self.SLLS, dmll, optimize=True) * c1**2
         Kll = np.einsum("ilkj,lk->ij", self.LSSL, dmss, optimize=True) * c1**2
         Kss = np.einsum("kjil,lk->ij", self.LSSL, dmll, optimize=True) * c1**2
         Kls = np.einsum("ilkj,lk->ij", self.LSLS, dmsl, optimize=True) * c1**2
-        # Ksl = np.einsum("ilkj,lk->ij", self.SLSL, dmls, optimize=True) * c1**2
         Ksl = Kls.transpose().conj()
 
         Jls = (
             np.einsum("ijkl,lk->ij", self.LSSL, dmls, optimize=True)
             + np.einsum("ijkl,lk->ij", self.LSLS, dmsl, optimize=True)
         ) * c1**2
-        # Jsl = (
-        #     np.einsum("ijkl,lk->ij", self.SLLS, dmsl, optimize=True)
-        #     + np.einsum("ijkl,lk->ij", self.SLSL, dmls, optimize=True)
-        # ) * c1**2
         Jsl = Jls.transpose().conj()
 
         vk[:n2c, :n2c] = Kll
@@ -427,6 +429,95 @@ class DHF:
         vj[n2c:, :n2c] = Jsl
 
         return vj, vk
+
+    def _call_veff_gaunt_breit(self, D: npt.NDArray):
+        n2c = self.n2c
+        c1 = 0.5 / LIGHT_SPEED
+        vj = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
+        vk = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
+
+        dm = D.copy()
+        dmll = dm[:n2c, :n2c].copy()
+        dmss = dm[n2c:, n2c:].copy()
+        dmsl = dm[n2c:, :n2c].copy()
+        dmls = dm[:n2c, n2c:].copy()
+
+        if self.with_breit:
+            Kll = (
+                np.einsum(
+                    "ilkj,lk->ij",
+                    self.B_LSSL,
+                    dmss,
+                    optimize=True,
+                )
+                * c1**2
+            )
+            Kss = (
+                np.einsum(
+                    "kjil,lk->ij",
+                    self.B_LSSL,
+                    dmll,
+                    optimize=True,
+                )
+                * c1**2
+            )
+            Kls = (
+                np.einsum(
+                    "ilkj,lk->ij",
+                    self.B_LSLS,
+                    dmsl,
+                    optimize=True,
+                )
+                * c1**2
+            )
+            Ksl = Kls.transpose().conj()
+
+            Jls = (
+                np.einsum(
+                    "ijkl,lk->ij",
+                    self.B_LSSL,
+                    dmls,
+                    optimize=True,
+                )
+                + np.einsum(
+                    "ijkl,lk->ij",
+                    self.B_LSLS,
+                    dmsl,
+                    optimize=True,
+                )
+            ) * c1**2
+            Jsl = Jls.transpose().conj()
+
+            vk[:n2c, :n2c] = Kll
+            vk[n2c:, n2c:] = Kss
+            vk[:n2c, n2c:] = Kls
+            vk[n2c:, :n2c] = Ksl
+
+            vj[:n2c, n2c:] = Jls
+            vj[n2c:, :n2c] = Jsl
+
+            return -vj, -vk
+        else:
+            Kll = np.einsum("ilkj,lk->ij", self.LSSL, dmss, optimize=True) * c1**2
+            Kss = np.einsum("kjil,lk->ij", self.LSSL, dmll, optimize=True) * c1**2
+            Kls = np.einsum("ilkj,lk->ij", self.LSLS, dmsl, optimize=True) * c1**2
+            Ksl = Kls.transpose().conj()
+
+            Jls = (
+                np.einsum("ijkl,lk->ij", self.LSSL, dmls, optimize=True)
+                + np.einsum("ijkl,lk->ij", self.LSLS, dmsl, optimize=True)
+            ) * c1**2
+            Jsl = Jls.transpose().conj()
+
+            vk[:n2c, :n2c] = Kll
+            vk[n2c:, n2c:] = Kss
+            vk[:n2c, n2c:] = Kls
+            vk[n2c:, :n2c] = Ksl
+
+            vj[:n2c, n2c:] = Jls
+            vj[n2c:, :n2c] = Jsl
+
+            return vj, vk
 
     def get_vhf(self, D: npt.NDArray) -> npt.NDArray:
         """Build Fock matrix from density matrix using precomputed integrals."""
@@ -442,8 +533,8 @@ class DHF:
             vj += J
             vk += K
 
-            if self.with_gaunt:
-                J, K = self._call_veff_gaunt(D)
+            if self.with_gaunt or self.with_breit:
+                J, K = self._call_veff_gaunt_breit(D)
                 vj -= J
                 vk -= K
 
@@ -458,8 +549,8 @@ class DHF:
             vj += J
             vk += K
 
-            if self.with_gaunt:
-                J, K = self._call_veff_gaunt(D)
+            if self.with_gaunt or self.with_breit:
+                J, K = self._call_veff_gaunt_breit(D)
                 vj -= J
                 vk -= K
 
@@ -552,7 +643,8 @@ class DHF:
 
 def main():
     # Example usage
-    mol = gto.M(atom="O 0 0 0; H 0 -0.757 0.587; H 0 0.757 0.587")
+    mol = gto.M(atom="O 0 0 0; H 0 -0.757 0.587; H 0 0.757 0.587", basis="sto-3g")
+    """
     mol.basis = {
         "H": [
             [0, 0, [8.29687389e01, 1.0]],
@@ -583,21 +675,26 @@ def main():
             [2, 0, [1.17766132e00, 1.0]],
         ],
     }
+    """
+    mol.basis = "sto-3g"
 
     mf = DHF(mol)
-
+    mf.with_gaunt = True
+    mf.with_breit = True
     E_our = mf.kernel()
 
-    # ref = mol.intor("int2e_ssp1sps2_spinor").reshape(mf.n2c, mf.n2c, mf.n2c, mf.n2c)
-    # print(ref.shape)
-    # print(np.abs(ref - mf.LSSL).max())
+    # ref = mol.intor("int2e_breit_ssp1ssp2_spinor").reshape(
+    #     mf.n2c, mf.n2c, mf.n2c, mf.n2c
+    # )
+    # print(ref)
+    # print(np.abs(ref - mf.B2_LSSL).max())
     # Compare with PySCF
     mf_pyscf = scf.DHF(mol)
 
     # mf_pyscf.verbose = 5
     mf_pyscf.init_guess = "1e"
     mf_pyscf.with_ssss = True
-    mf_pyscf.with_gaunt = True
+    mf_pyscf.with_breit = True
     E_pyscf = mf_pyscf.kernel()
 
     # print("E(Dirac-Coulomb) = %.15g" % mf_pyscf.kernel())
@@ -610,8 +707,7 @@ def main():
     # print("E(Dirac-Coulomb-Breit) = %.15g" % mf_pyscf.kernel())
 
     #
-    # # Our implementation
-    # mf = RHF(mol)
+    # Our implementation
     # E_our = mf.kernel()
     print(f"\n\nOur energy:   {E_our:.10f}")
     print(f"PySCF energy: {E_pyscf:.10f}")
