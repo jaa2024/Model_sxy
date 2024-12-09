@@ -397,39 +397,6 @@ class DHF:
 
         return vj, vk
 
-    def _call_veff_gaunt(self, D: npt.NDArray):
-        n2c = self.n2c
-        c1 = 0.5 / LIGHT_SPEED
-        vj = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
-        vk = np.zeros((n2c * 2, n2c * 2), dtype=np.complex128)
-
-        dm = D.copy()
-        dmll = dm[:n2c, :n2c].copy()
-        dmss = dm[n2c:, n2c:].copy()
-        dmsl = dm[n2c:, :n2c].copy()
-        dmls = dm[:n2c, n2c:].copy()
-
-        Kll = np.einsum("ilkj,lk->ij", self.LSSL, dmss, optimize=True) * c1**2
-        Kss = np.einsum("kjil,lk->ij", self.LSSL, dmll, optimize=True) * c1**2
-        Kls = np.einsum("ilkj,lk->ij", self.LSLS, dmsl, optimize=True) * c1**2
-        Ksl = Kls.transpose().conj()
-
-        Jls = (
-            np.einsum("ijkl,lk->ij", self.LSSL, dmls, optimize=True)
-            + np.einsum("ijkl,lk->ij", self.LSLS, dmsl, optimize=True)
-        ) * c1**2
-        Jsl = Jls.transpose().conj()
-
-        vk[:n2c, :n2c] = Kll
-        vk[n2c:, n2c:] = Kss
-        vk[:n2c, n2c:] = Kls
-        vk[n2c:, :n2c] = Ksl
-
-        vj[:n2c, n2c:] = Jls
-        vj[n2c:, :n2c] = Jsl
-
-        return vj, vk
-
     def _call_veff_gaunt_breit(self, D: npt.NDArray):
         n2c = self.n2c
         c1 = 0.5 / LIGHT_SPEED
@@ -443,48 +410,14 @@ class DHF:
         dmls = dm[:n2c, n2c:].copy()
 
         if self.with_breit:
-            Kll = (
-                np.einsum(
-                    "ilkj,lk->ij",
-                    self.B_LSSL,
-                    dmss,
-                    optimize=True,
-                )
-                * c1**2
-            )
-            Kss = (
-                np.einsum(
-                    "kjil,lk->ij",
-                    self.B_LSSL,
-                    dmll,
-                    optimize=True,
-                )
-                * c1**2
-            )
-            Kls = (
-                np.einsum(
-                    "ilkj,lk->ij",
-                    self.B_LSLS,
-                    dmsl,
-                    optimize=True,
-                )
-                * c1**2
-            )
+            Kll = np.einsum("ilkj,lk->ij", self.B_LSSL, dmss, optimize=True) * c1**2
+            Kss = np.einsum("kjil,lk->ij", self.B_LSSL, dmll, optimize=True) * c1**2
+            Kls = np.einsum("ilkj,lk->ij", self.B_LSLS, dmsl, optimize=True) * c1**2
             Ksl = Kls.transpose().conj()
 
             Jls = (
-                np.einsum(
-                    "ijkl,lk->ij",
-                    self.B_LSSL,
-                    dmls,
-                    optimize=True,
-                )
-                + np.einsum(
-                    "ijkl,lk->ij",
-                    self.B_LSLS,
-                    dmsl,
-                    optimize=True,
-                )
+                np.einsum("ijkl,lk->ij", self.B_LSSL, dmls, optimize=True)
+                + np.einsum("ijkl,lk->ij", self.B_LSLS, dmsl, optimize=True)
             ) * c1**2
             Jsl = Jls.transpose().conj()
 
