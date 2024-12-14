@@ -58,7 +58,7 @@ class UHF:
         # Diis parameter
         self.DIIS = True
         self.diis_space = 12
-        self.diis_start = 4
+        self.diis_start = 2
         self.A = None  # Overlap orthogonalization matrix
         self.F_list = []
         self.DIIS_list = []
@@ -285,44 +285,42 @@ class UHF:
     
     def _compute_diis_res(
         self, F: tuple[npt.NDArray, npt.NDArray], D: tuple[npt.NDArray, npt.NDArray]
-    ) -> tuple[npt.NDArray, npt.NDArray]:
+    ) -> npt.NDArray:
         Fa, Fb = F
         Da, Db = D
         FDSa = np.dot(np.dot(Fa, Da), self.S)
         FDSb = np.dot(np.dot(Fb, Db), self.S)
-        res_a = np.dot(np.dot(self.A, (FDSa - FDSa.T)), self.A)
-        res_b = np.dot(np.dot(self.A, (FDSb - FDSb.T)), self.A)
-        return res_a, res_b
+        # res_a = np.dot(np.dot(self.A, (FDSa - FDSa.T)), self.A)
+        # res_b = np.dot(np.dot(self.A, (FDSb - FDSb.T)), self.A)
+        res_a = FDSa - FDSa.T
+        res_b = FDSb - FDSb.T
+        res = (res_a + res_b) / 2
+        return res
 
     def apply_diis(
-        self, F_list: list[tuple[npt.NDArray, npt.NDArray]], DIIS_list: list[tuple[npt.NDArray, npt.NDArray]]
+        self, F_list: list[tuple[npt.NDArray, npt.NDArray]], DIIS_list: list[npt.NDArray]
     ) -> tuple[npt.NDArray, npt.NDArray]:
         """Apply DIIS to update the Fock matrix."""
         B_dim = len(F_list) + 1
-        Ba = np.empty((B_dim, B_dim))
-        Bb = np.empty((B_dim, B_dim))
-        Ba[-1, :], Bb[-1, :] = -1, -1
-        Ba[:, -1], Bb[:, -1] = -1, -1
-        Ba[-1, -1], Bb[-1, -1] = 0, 0
+        B = np.empty((B_dim, B_dim))
+        B[-1, :] = -1
+        B[:, -1] = -1
+        B[-1, -1] = 0
 
         for i in range(len(F_list)):
             for j in range(len(F_list)):
                 # Compute the inner product of residuals
-                Ba[i, j] = np.einsum(
-                    "ij,ij->", DIIS_list[i][0], DIIS_list[j][0], optimize=True
-                )
-                Bb[i, j] = np.einsum(
-                    "ij,ij->", DIIS_list[i][1], DIIS_list[j][1], optimize=True
+                B[i, j] = np.einsum(
+                    "ij,ij->", DIIS_list[i], DIIS_list[j], optimize=True
                 )
 
         rhs = np.zeros((B_dim))
         rhs[-1] = -1
-        coeff_a = np.linalg.solve(Ba, rhs)
-        coeff_b = np.linalg.solve(Bb, rhs)
+        coeff = np.linalg.solve(B, rhs)
 
         # Update the Fock matrix as a linear combination of previous Fock matrices
-        Fa_new = np.einsum("i,ikl->kl", coeff_a[:-1], [f[0] for f in F_list])
-        Fb_new = np.einsum("i,ikl->kl", coeff_b[:-1], [f[1] for f in F_list])
+        Fa_new = np.einsum("i,ikl->kl", coeff[:-1], [f[0] for f in F_list])
+        Fb_new = np.einsum("i,ikl->kl", coeff[:-1], [f[1] for f in F_list])
 
         return Fa_new, Fb_new
 
@@ -381,12 +379,13 @@ class UHF:
 
 def main():
     # Example usage
-    # mol = gto.M(atom="O 0 0 0; O 0 0 1.2", basis="ccpvdz", spin=2)
-    mol = gto.M(atom="C 0 0 0; F 0 1.29715400 0; F -1.12336800 -0.64857700 0; F 1.12336800 -0.64857700 0", 
-                basis="ccpvdz", spin=1)
+    mol = gto.M(atom="O 0 0 0; O 0 0 1.2", basis="ccpvqz", spin=2)
+    # mol = gto.M(atom="C 0 0 0; F 0 1.29715400 0; F -1.12336800 -0.64857700 0; F 1.12336800 -0.64857700 0", 
+    #             basis="ccpvdz", spin=1)
 
     # Compare with PySCF
     mf_pyscf = scf.UHF(mol)
+    mf_pyscf.verbose = 4
     mf_pyscf.init_guess = '1e'
     E_pyscf = mf_pyscf.kernel()
     print(f"\nPySCF energy: {E_pyscf:.10f}")
