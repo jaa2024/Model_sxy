@@ -1,4 +1,3 @@
-#include "fmt/base.h"
 #include "integral.hpp"
 
 int main()

@@ -30,8 +30,10 @@ Build with CMake:
 ```bash
 mkdir build
 cd build
-cmake ..
+cmake -DCMAKE_BUILD_TYPE=Release ..
 cmake --build .
+## run it
+./gto_integral   
 ```
 
 ## Example Output
