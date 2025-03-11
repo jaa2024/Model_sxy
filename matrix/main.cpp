@@ -1,4 +1,3 @@
-#include "fmt/base.h"
 #include "linalg/matrix.hpp"
 using namespace linalg;
 
