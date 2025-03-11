@@ -61,6 +61,8 @@ public:
       cblas_zcopy(ld_ * ncol_, other.data_, 1, data_, 1);
     } else if constexpr (std::is_same_v<T, std::complex<float>>) {
       cblas_ccopy(ld_ * ncol_, other.data_, 1, data_, 1);
+    } else {
+      std::memcpy(data_, other.data_, ld_ * ncol_ * sizeof(T));
     }
   }
 
@@ -127,7 +129,7 @@ public:
   static Matrix zero(std::size_t rows, std::size_t cols,
                      CBLAS_LAYOUT layout = CblasColMajor) {
     Matrix mat(rows, cols, layout);
-    std::size_t total = mat.ld_ * mat.ncol_;
+    std::size_t total = mat.nrow_ * mat.ncol_;
     if constexpr (std::is_floating_point_v<T>) {
       cblas_sscal(total, 0.0f, mat.data_, 1);
     } else if constexpr (std::is_same_v<T, double>) {
@@ -139,7 +141,10 @@ public:
       MKL_Complex16 alpha{0.0, 0.0};
       cblas_zscal(total, &alpha, mat.data_, 1);
     } else {
-      static_assert(!std::is_same_v<T, T>, "Unsupported element type");
+#pragma omp parallel for
+      for (std::size_t i = 0; i < total; ++i) {
+        mat.data_[i] = T{0};
+      }
     }
     return mat;
   }
@@ -147,6 +152,7 @@ public:
   // 生成单位矩阵
   static Matrix identity(std::size_t n, CBLAS_LAYOUT layout = CblasColMajor) {
     Matrix mat = zero(n, n, layout);
+#pragma omp parallel for
     for (std::size_t i = 0; i < n; ++i) {
       mat(i, i) = T{1};
     }
@@ -161,7 +167,7 @@ public:
     VSLStreamStatePtr stream;
     vslNewStream(&stream, VSL_BRNG_MT19937, std::random_device{}());
 
-    const std::size_t total = mat.ld_ * mat.ncol_;
+    const std::size_t total = mat.nrow_ * mat.ncol_;
 
     // 实数类型处理
     if constexpr (std::is_same_v<T, float>) {
@@ -179,7 +185,10 @@ public:
                    reinterpret_cast<double *>(mat.data_), std::real(min),
                    std::real(max));
     } else {
-      static_assert(!std::is_same_v<T, T>, "Unsupported element type");
+      for (std::size_t i = 0; i < total; ++i) {
+        mat.data_[i] = T{std::uniform_real_distribution<T>(min, max)(
+            std::random_device{}())};
+      }
     }
 
     vslDeleteStream(&stream);
@@ -232,13 +241,15 @@ public:
       } else if constexpr (std::is_same_v<T, std::complex<double>>) {
         vzAdd(total, this->data_, other.data_, C.data_);
       } else {
+#pragma omp parallel for
         for (std::size_t i = 0; i < total; ++i) {
           C.data_[i] = this->data_[i] + other.data_[i];
         }
       }
     } else {
-      for (std::size_t i = 0; i < this->nrow_; ++i) {
-        for (std::size_t j = 0; j < this->ncol_; ++j) {
+#pragma omp parallel for
+      for (std::size_t j = 0; j < this->ncol_; ++j) {
+        for (std::size_t i = 0; i < this->nrow_; ++i) {
           C(i, j) = (*this)(i, j) + other(i, j);
         }
       }
@@ -267,13 +278,15 @@ public:
       } else if constexpr (std::is_same_v<T, std::complex<double>>) {
         vzSub(total, this->data_, other.data_, C.data_);
       } else {
+#pragma omp parallel for
         for (std::size_t i = 0; i < total; ++i) {
           C.data_[i] = this->data_[i] - other.data_[i];
         }
       }
     } else {
-      for (std::size_t i = 0; i < this->nrow_; ++i) {
-        for (std::size_t j = 0; j < this->ncol_; ++j) {
+#pragma omp parallel for
+      for (std::size_t j = 0; j < this->ncol_; ++j) {
+        for (std::size_t i = 0; i < this->nrow_; ++i) {
           C(i, j) = (*this)(i, j) - other(i, j);
         }
       }
@@ -312,8 +325,8 @@ public:
                   &alpha, A.data_, A.ld_, B.data_, B.ld_, &beta, C.data_,
                   C.ld_);
     } else {
-      for (std::size_t i = 0; i < C.rows(); ++i) {
-        for (std::size_t j = 0; j < C.cols(); ++j) {
+      for (std::size_t j = 0; j < C.cols(); ++j) {
+        for (std::size_t i = 0; i < C.rows(); ++i) {
           C(i, j) = 0;
           for (std::size_t k = 0; k < A.cols(); ++k) {
             C(i, j) += A(i, k) * B(k, j);
@@ -564,7 +577,7 @@ inline void lapack_eigh<std::complex<float>, float>(
 template <typename T>
 std::pair<std::vector<typename MatrixTypeInfo<T>::RealType>, Matrix<T>>
 eigh(const Matrix<T> &H, char uplo) {
-  using Real = typename MatrixTypeInfo<T>::RealType; 
+  using Real = typename MatrixTypeInfo<T>::RealType;
 
   Matrix<T> A(H);
   const int n = static_cast<int>(H.rows());
