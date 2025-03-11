@@ -20,10 +20,15 @@ add_subdirectory(external/libcint)
 include_directories(${CMAKE_BINARY_DIR}/external/libcint/include)
 # --------------------> fmt <--------------------
 add_subdirectory(external/fmt)
+# --------------------> END  <--------------------
 
 file(GLOB_RECURSE src_lianlg "src/linalg/*.[ch]pp")
+file(GLOB_RECURSE src_gto "src/gto/*.[ch]pp")
+
+add_definitions(-DSHARE_DIR="${CMAKE_SOURCE_DIR}/share")
+
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
-add_executable(Edgerunner ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp ${src_lianlg})
+add_executable(Edgerunner ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp ${src_lianlg} ${src_gto})
 
 target_link_libraries(Edgerunner PRIVATE
                       ${MKLLIB}
@@ -31,3 +36,15 @@ target_link_libraries(Edgerunner PRIVATE
                       cint
                       OpenMP::OpenMP_CXX 
                       Threads::Threads  )
+
+                      set_target_properties(Edgerunner PROPERTIES
+  BUILD_RPATH "${cint_BINARY_DIR}"
+  INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib"
+  INSTALL_RPATH_USE_LINK_PATH TRUE
+)
+
+add_custom_command(TARGET Edgerunner POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+      ${CMAKE_SOURCE_DIR}/share
+      ${CMAKE_BINARY_DIR}/share
+)

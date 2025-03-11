@@ -91,6 +91,19 @@ public:
   std::size_t cols() const { return (trans_ == CblasNoTrans) ? ncol_ : nrow_; }
   T *data() const { return data_; }
   std::size_t ld() const { return ld_; }
+  void resize(std::size_t rows, std::size_t cols, CBLAS_LAYOUT layout) {
+    if (data_) {
+      mkl_free(data_);
+      data_ = nullptr;
+    }
+    layout_ = layout;
+    ncol_ = cols;
+    nrow_ = rows;
+    ld_ = (layout_ == CblasColMajor) ? rows : cols;
+    data_ = static_cast<T *>(mkl_malloc(ld_ * ncol_ * sizeof(T), 64));
+    if (!data_)
+      throw std::bad_alloc();
+  }
 
   // 获取转置矩阵
   Matrix<T> transpose() {
