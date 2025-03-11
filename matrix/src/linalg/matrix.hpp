@@ -73,8 +73,8 @@ public:
     other.data_ = nullptr;
   }
 
-  // 元素访问 (考虑转置和布局)
-  T &operator()(std::size_t i, std::size_t j) {
+  // 元素访问
+  inline T &operator()(std::size_t i, std::size_t j) {
     if (trans_ == CblasTrans)
       std::swap(i, j);
     return layout_ == CblasColMajor ? data_[i + j * ld_] : data_[i * ld_ + j];
@@ -87,11 +87,15 @@ public:
   }
 
   // 获取矩阵维度信息
-  std::size_t rows() const { return (trans_ == CblasNoTrans) ? nrow_ : ncol_; }
-  std::size_t cols() const { return (trans_ == CblasNoTrans) ? ncol_ : nrow_; }
-  T *data() const { return data_; }
-  std::size_t ld() const { return ld_; }
-  void resize(std::size_t rows, std::size_t cols, CBLAS_LAYOUT layout) {
+  inline std::size_t rows() const {
+    return (trans_ == CblasNoTrans) ? nrow_ : ncol_;
+  }
+  inline std::size_t cols() const {
+    return (trans_ == CblasNoTrans) ? ncol_ : nrow_;
+  }
+  inline T *data() const { return data_; }
+  inline std::size_t ld() const { return ld_; }
+  inline void resize(std::size_t rows, std::size_t cols, CBLAS_LAYOUT layout) {
     if (data_) {
       mkl_free(data_);
       data_ = nullptr;
@@ -106,20 +110,20 @@ public:
   }
 
   // 获取转置矩阵
-  Matrix<T> transpose() {
+  inline Matrix<T> transpose() {
     Matrix view(*this);
     view.trans_ = (trans_ == CblasNoTrans) ? CblasTrans : CblasNoTrans;
     std::swap(view.nrow_, view.ncol_);
     return view;
   }
 
-  // 转置矩阵原地操作
-  void transpose_inplace() {
+  // 原地转置
+  inline void transpose_inplace() {
     this->trans_ = (trans_ == CblasNoTrans) ? CblasTrans : CblasNoTrans;
   }
 
   // 复共轭
-  Matrix<T> conjugate() const {
+  inline Matrix<T> conjugate() const {
     Matrix view(*this);
     if constexpr (std::is_same_v<T, std::complex<float>>) {
       std::size_t total = view.nrow_ * view.ncol_;
@@ -132,15 +136,15 @@ public:
   }
 
   // 转置共轭
-  Matrix<T> adjoint() const {
+  inline Matrix<T> adjoint() const {
     Matrix view = this->conjugate();
     view.transpose_inplace();
     return view;
   }
 
   // 生成全零矩阵
-  static Matrix zero(std::size_t rows, std::size_t cols,
-                     CBLAS_LAYOUT layout = CblasColMajor) {
+  inline static Matrix zero(std::size_t rows, std::size_t cols,
+                            CBLAS_LAYOUT layout = CblasColMajor) {
     Matrix mat(rows, cols, layout);
     std::size_t total = mat.nrow_ * mat.ncol_;
     if constexpr (std::is_floating_point_v<T>) {
@@ -163,7 +167,8 @@ public:
   }
 
   // 生成单位矩阵
-  static Matrix identity(std::size_t n, CBLAS_LAYOUT layout = CblasColMajor) {
+  inline static Matrix identity(std::size_t n,
+                                CBLAS_LAYOUT layout = CblasColMajor) {
     Matrix mat = zero(n, n, layout);
 #pragma omp parallel for
     for (std::size_t i = 0; i < n; ++i) {
@@ -173,9 +178,9 @@ public:
   }
 
   // 生成随机矩阵（均匀分布）
-  static Matrix random(std::size_t rows, std::size_t cols,
-                       CBLAS_LAYOUT layout = CblasColMajor, T min = T{-1},
-                       T max = T{1}) {
+  inline static Matrix random(std::size_t rows, std::size_t cols,
+                              CBLAS_LAYOUT layout = CblasColMajor,
+                              T min = T{-1}, T max = T{1}) {
     Matrix mat(rows, cols, layout);
     VSLStreamStatePtr stream;
     vslNewStream(&stream, VSL_BRNG_MT19937, std::random_device{}());
@@ -208,7 +213,7 @@ public:
     return mat;
   }
 
-  void print() const {
+  inline void print() const {
     // 格式化输出实现
     for (std::size_t i = 0; i < rows(); ++i) {
       fmt::print("["); // 行起始符
@@ -234,7 +239,7 @@ public:
   }
 
   // 矩阵加法
-  Matrix<T> operator+(const Matrix<T> &other) const {
+  inline Matrix<T> operator+(const Matrix<T> &other) const {
     if (this->rows() != other.rows() || this->cols() != other.cols()) {
       throw std::invalid_argument(
           "Matrix dimensions must match for subtraction");
@@ -271,7 +276,7 @@ public:
   }
 
   // 矩阵减法
-  Matrix<T> operator-(const Matrix<T> &other) const {
+  inline Matrix<T> operator-(const Matrix<T> &other) const {
     if (this->rows() != other.rows() || this->cols() != other.cols()) {
       throw std::invalid_argument(
           "Matrix dimensions must match for subtraction");
@@ -475,8 +480,7 @@ inline void lapack_eigh<float>(int itype, char jobz, char uplo, int n, float *a,
 template <>
 inline void
 lapack_eigh<std::complex<double>, double>(int n, std::complex<double> *a,
-                                          int lda, double *w,
-                                          int &info) { // 修改w为double*
+                                          int lda, double *w, int &info) {
   char jobz = 'V', uplo = 'L';
   int lwork = -1;
   std::complex<double> work_query;
@@ -485,10 +489,8 @@ lapack_eigh<std::complex<double>, double>(int n, std::complex<double> *a,
   int liwork = -1, iwork_query;
 
   // 第一次调用查询工作空间
-  zheevd_(&jobz, &uplo, &n, a, &lda,
-          w, // 直接使用double数组
-          &work_query, &lwork, &rwork_query, &lrwork, &iwork_query, &liwork,
-          &info);
+  zheevd_(&jobz, &uplo, &n, a, &lda, w, &work_query, &lwork, &rwork_query,
+          &lrwork, &iwork_query, &liwork, &info);
 
   // 分配工作空间
   lwork = static_cast<int>(work_query.real());
@@ -499,10 +501,8 @@ lapack_eigh<std::complex<double>, double>(int n, std::complex<double> *a,
   std::vector<int> iwork(liwork);
 
   // 实际计算
-  zheevd_(&jobz, &uplo, &n, a, &lda,
-          w, // 正确传递double数组
-          work.data(), &lwork, rwork.data(), &lrwork, iwork.data(), &liwork,
-          &info);
+  zheevd_(&jobz, &uplo, &n, a, &lda, w, work.data(), &lwork, rwork.data(),
+          &lrwork, iwork.data(), &liwork, &info);
 }
 // std::complex<double> 类型 (广义特征值)
 template <>
