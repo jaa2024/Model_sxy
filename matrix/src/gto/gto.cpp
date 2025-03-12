@@ -341,7 +341,7 @@ void Mol::printCintInfo() const {
   // env
   fmt::print("\nenv:\n");
   for (auto i = 0; i < info_.env.size(); i++) {
-    fmt::print("{:10.4f}", info_.env[i]);
+    fmt::print("{:10.6f}", info_.env[i]);
     if ((i + 1) % 5 == 0) {
       fmt::print("\n");
     }

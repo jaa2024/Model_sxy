@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(MatrixProject LANGUAGES CXX)
+project(Edgerunner LANGUAGES CXX)
 
 # Set the C++ standard
 set(CMAKE_CXX_STANDARD 17)
