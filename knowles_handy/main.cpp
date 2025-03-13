@@ -1,7 +1,6 @@
 #include "ci/kh.hpp"
 #include "integral/integral.hpp"
 #include <chrono>
-#include <iostream>
 
 using CSRMatrix =
     std::tuple<std::vector<double>, std::vector<int>, std::vector<int>,
@@ -54,8 +53,10 @@ int main() {
   auto transformer = [&](const std::vector<double> &v) { return A * v; };
   auto start = std::chrono::high_resolution_clock::now();
   linalg::davidson_solver(transformer, diag.data(), rows);
-  auto end = std::chrono::high_resolution_clock::now();
-  auto duration =
-      std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  fmt::println("Time taken: {} ms",
+               std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::high_resolution_clock::now() - start)
+                   .count());
+
   return 0;
 }

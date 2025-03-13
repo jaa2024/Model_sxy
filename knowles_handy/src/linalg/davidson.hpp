@@ -107,7 +107,7 @@ template <typename T = double> Matrix<T> gramschmidt(const Matrix<T> &X) {
 
 template <typename Transformer, typename T = double>
 const double davidson_solver(Transformer transformer, const T *diagonal,
-                             std::size_t n_dim, std::size_t start_dim = 2,
+                             std::size_t n_dim, std::size_t start_dim = 5,
                              std::size_t max_iter = 100,
                              double residue_tol = 1e-6) {
 
@@ -131,7 +131,7 @@ const double davidson_solver(Transformer transformer, const T *diagonal,
     auto min_it = std::min_element(eigenvalues.begin(), eigenvalues.end());
     double theta = *min_it;
     std::size_t minIndex = std::distance(eigenvalues.begin(), min_it);
-    fmt::println("davidson diagonalization iter: {}, theta: {:10.10f}",
+    fmt::println("davidson diagonalization iter: {:>2}, theta: {:10.10f}",
                  iter + 1, theta);
 
     // check the residue
@@ -141,7 +141,7 @@ const double davidson_solver(Transformer transformer, const T *diagonal,
     // theta * orthonormal_subspace * s;
     double residue_norm = norm_(residue);
     if (residue_norm < residue_tol) {
-      fmt::println("davidson diagonalization converged in {} iterations",
+      fmt::println("davidson diagonalization converged in {:>2} iterations",
                    iter + 1);
       return theta;
     }
