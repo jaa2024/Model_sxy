@@ -8,7 +8,8 @@
 namespace linalg {
 
 // help functions
-template <typename T = double> double norm(const std::vector<T> &v) {
+template <typename T = double> // returns \sqrt(\sum (v * v))
+double norm_(const std::vector<T> &v) {
   double result = 0.0;
   if constexpr (std::is_same_v<T, double>) {
     result = cblas_dnrm2(v.size(), v.data(), 1);
@@ -21,6 +22,55 @@ template <typename T = double> double norm(const std::vector<T> &v) {
   }
   return result;
 }
+template <typename T = double> // returns \sum (v1 * v2)
+T dot_(const std::vector<T> &v1, const std::vector<T> &v2) {
+  T result = T(0);
+  if constexpr (std::is_same_v<T, double>) {
+    result = cblas_ddot(v1.size(), v1.data(), 1, v2.data(), 1);
+  } else if constexpr (std::is_same_v<T, float>) {
+    result = cblas_sdot(v1.size(), v1.data(), 1, v2.data(), 1);
+  } else if constexpr (std::is_same_v<T, std::complex<double>>) {
+    std::complex<double> blas_result;
+    cblas_zdotc_sub(v1.size(), v1.data(), 1, v2.data(), 1, &blas_result);
+    result = blas_result;
+  } else if constexpr (std::is_same_v<T, std::complex<float>>) {
+    std::complex<float> blas_result;
+    cblas_cdotc_sub(v1.size(), v1.data(), 1, v2.data(), 1, &blas_result);
+    result = blas_result;
+  }
+  return result;
+}
+template <typename T = double> // v1 = v1 * scalar
+void dot_(std::vector<T> &v1, T scalar) {
+  auto len = v1.size();
+  if constexpr (std::is_same_v<T, double>) {
+    cblas_dscal(len, scalar, v1.data(), 1);
+  } else if constexpr (std::is_same_v<T, float>) {
+    cblas_sscal(len, scalar, v1.data(), 1);
+  } else if constexpr (std::is_same_v<T, std::complex<double>>) {
+    std::complex<double> alpha{scalar.real(), scalar.imag()};
+    cblas_zscal(len, &alpha, v1.data(), 1);
+  } else if constexpr (std::is_same_v<T, std::complex<float>>) {
+    std::complex<float> alpha{scalar.real(), scalar.imag()};
+    cblas_cscal(len, &alpha, v1.data(), 1);
+  }
+}
+template <typename T = double> // v1 = v1 + v2 * scalar
+void add_(std::vector<T> &v1, const std::vector<T> &v2, const T scalar) {
+  auto len = v1.size();
+  if constexpr (std::is_same_v<T, double>) {
+    cblas_daxpy(len, scalar, v2.data(), 1, v1.data(), 1);
+  } else if constexpr (std::is_same_v<T, float>) {
+    cblas_saxpy(len, scalar, v2.data(), 1, v1.data(), 1);
+  } else if constexpr (std::is_same_v<T, std::complex<double>>) {
+    const std::complex<double> alpha{scalar.real(), scalar.imag()};
+    cblas_zaxpy(len, &alpha, v2.data(), 1, v1.data(), 1);
+  } else if constexpr (std::is_same_v<T, std::complex<float>>) {
+    const std::complex<float> alpha{scalar.real(), scalar.imag()};
+    cblas_caxpy(len, &alpha, v2.data(), 1, v1.data(), 1);
+  }
+}
+
 template <typename T = double> Matrix<T> gramschmidt(const Matrix<T> &X) {
   Matrix<T> orthonormal = X;
   const int cols = X.cols();
@@ -31,28 +81,9 @@ template <typename T = double> Matrix<T> gramschmidt(const Matrix<T> &X) {
 
     for (int j = 0; j < i; ++j) {
       const std::vector<T> &col_j = orthonormal.col(j);
-      T proj = T(0);
-      T denom = T(0);
 
-      if constexpr (std::is_same_v<T, double>) {
-        proj = cblas_ddot(rows, col_j.data(), 1, col_i.data(), 1);
-        denom = cblas_ddot(rows, col_j.data(), 1, col_j.data(), 1);
-      } else if constexpr (std::is_same_v<T, float>) {
-        proj = cblas_sdot(rows, col_j.data(), 1, col_i.data(), 1);
-        denom = cblas_sdot(rows, col_j.data(), 1, col_j.data(), 1);
-      } else if constexpr (std::is_same_v<T, std::complex<double>>) {
-        std::complex<double> blas_proj, blas_denom;
-        cblas_zdotc_sub(rows, col_j.data(), 1, col_i.data(), 1, &blas_proj);
-        cblas_zdotc_sub(rows, col_j.data(), 1, col_j.data(), 1, &blas_denom);
-        proj = blas_proj;
-        denom = blas_denom;
-      } else if constexpr (std::is_same_v<T, std::complex<float>>) {
-        std::complex<float> blas_proj, blas_denom;
-        cblas_cdotc_sub(rows, col_j.data(), 1, col_i.data(), 1, &blas_proj);
-        cblas_cdotc_sub(rows, col_j.data(), 1, col_j.data(), 1, &blas_denom);
-        proj = blas_proj;
-        denom = blas_denom;
-      }
+      auto proj = dot_(col_i, col_j);
+      auto denom = dot_(col_j, col_j);
 
       T coeff = T(0);
       if (std::abs(denom) > 1e-14) {
@@ -60,46 +91,25 @@ template <typename T = double> Matrix<T> gramschmidt(const Matrix<T> &X) {
       }
 
       // col_i = col_i - coeff * col_j
-      if constexpr (std::is_same_v<T, double>) {
-        cblas_daxpy(rows, -coeff, col_j.data(), 1, col_i.data(), 1);
-      } else if constexpr (std::is_same_v<T, float>) {
-        cblas_saxpy(rows, -coeff, col_j.data(), 1, col_i.data(), 1);
-      } else if constexpr (std::is_same_v<T, std::complex<double>>) {
-        const std::complex<double> alpha{-coeff.real(), -coeff.imag()};
-        cblas_zaxpy(rows, &alpha, col_j.data(), 1, col_i.data(), 1);
-      } else if constexpr (std::is_same_v<T, std::complex<float>>) {
-        const std::complex<float> alpha{-coeff.real(), -coeff.imag()};
-        cblas_caxpy(rows, &alpha, col_j.data(), 1, col_i.data(), 1);
-      }
+      add_(col_i, col_j, -coeff);
     }
 
-    double norm_d = norm(col_i);
+    double norm_d = norm_(col_i);
 
     if (norm_d > 1e-7) {
       const T scale = T(1.0 / norm_d);
-      if constexpr (std::is_same_v<T, double>) {
-        cblas_dscal(rows, scale, col_i.data(), 1);
-      } else if constexpr (std::is_same_v<T, float>) {
-        cblas_sscal(rows, scale, col_i.data(), 1);
-      } else if constexpr (std::is_same_v<T, std::complex<double>>) {
-        const std::complex<double> alpha{scale.real(), scale.imag()};
-        cblas_zscal(rows, &alpha, col_i.data(), 1);
-      } else if constexpr (std::is_same_v<T, std::complex<float>>) {
-        const std::complex<float> alpha{scale.real(), scale.imag()};
-        cblas_cscal(rows, &alpha, col_i.data(), 1);
-      }
+      dot_(col_i, scale);
     }
-
     orthonormal.setCol(i, col_i);
   }
-
   return orthonormal;
 }
 
 template <typename Transformer, typename T = double>
-double davidson_solver(Transformer transformer, const T *diagonal,
-                       std::size_t n_dim, std::size_t start_dim = 2,
-                       std::size_t max_iter = 100, double residue_tol = 1e-6) {
+const double davidson_solver(Transformer transformer, const T *diagonal,
+                             std::size_t n_dim, std::size_t start_dim = 2,
+                             std::size_t max_iter = 100,
+                             double residue_tol = 1e-6) {
 
   // initial guess
   Matrix<T> search_space = Matrix<T>::identity(n_dim, start_dim) +
@@ -115,19 +125,21 @@ double davidson_solver(Transformer transformer, const T *diagonal,
       Ab_i.setCol(j, transformer(vec));
     }
 
-    Matrix<double> B = orthonormal_subspace.transpose() * Ab_i;
+    Matrix<double> B = orthonormal_subspace.transpose().conjugate() * Ab_i;
     auto [eigenvalues, eigenvectors] = eigh(B);
     // find the index of the smallest eigenvalue
     auto min_it = std::min_element(eigenvalues.begin(), eigenvalues.end());
     double theta = *min_it;
     std::size_t minIndex = std::distance(eigenvalues.begin(), min_it);
-    fmt::println("davidson diagonalization iter: {}, theta: {:>10:10f}",
+    fmt::println("davidson diagonalization iter: {}, theta: {:10.10f}",
                  iter + 1, theta);
 
     // check the residue
     std::vector<T> s = eigenvectors.col(minIndex);
-    std::vector<T> residue = Ab_i * s - theta * orthonormal_subspace * s;
-    double residue_norm = norm(residue);
+    std::vector<T> residue = Ab_i * s;
+    add_(residue, orthonormal_subspace * s, -theta);
+    // theta * orthonormal_subspace * s;
+    double residue_norm = norm_(residue);
     if (residue_norm < residue_tol) {
       fmt::println("davidson diagonalization converged in {} iterations",
                    iter + 1);
@@ -138,7 +150,7 @@ double davidson_solver(Transformer transformer, const T *diagonal,
     for (int i = 0; i < n_dim; ++i) {
       xi[i] = residue[i] / (theta - diagonal[i]);
     }
-    auto xi_norm = norm(xi);
+    auto xi_norm = norm_(xi);
     std::transform(xi.begin(), xi.end(), xi.begin(),
                    [xi_norm](T &val) { return val / xi_norm; });
 

@@ -14,10 +14,6 @@ find_package(Threads REQUIRED)
 message(STATUS "MKL support enabled.")
 set(MKLLIB "-L${MKLROOT}/lib -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl")
 include_directories(${MKLROOT}/include)
-
-# --------------------> libcint <--------------------
-add_subdirectory(external/libcint)
-include_directories(${CMAKE_BINARY_DIR}/external/libcint/include)
 # --------------------> fmt <--------------------
 add_subdirectory(external/fmt)
 # --------------------> END  <--------------------
@@ -35,7 +31,6 @@ add_executable(Edgerunner ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
 target_link_libraries(Edgerunner PRIVATE
                       ${MKLLIB}
                       fmt::fmt
-                      cint
                       OpenMP::OpenMP_CXX 
                       Threads::Threads  )
 

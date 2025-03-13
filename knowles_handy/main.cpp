@@ -1,19 +1,61 @@
 #include "ci/kh.hpp"
 #include "integral/integral.hpp"
+#include <chrono>
 #include <iostream>
 
-int main(int argc, char **argv) {
-  if (argc != 2) {
-    std::cerr << "Usage: " << argv[0] << " <integral_file>\n";
-    std::cerr << "Example: ./main int.txt\n";
-    return 1;
-  }
-  integral::Integral<> MO_INTEGRAL(argv[1]);
+using CSRMatrix =
+    std::tuple<std::vector<double>, std::vector<int>, std::vector<int>,
+               std::vector<double>, int, int, int>;
 
-  linalg::Matrix<double> S = linalg::Matrix<double>::random(2, 2);
-  S.print();
-  S.conservativeResize(2, 3);
-  S.setCol(2, {1.0, 2.0});
-  S.print();
+CSRMatrix readCSRFromFile(const std::string &filename) {
+  std::ifstream file(filename);
+  if (!file) {
+    throw std::runtime_error("Failed to open file");
+  }
+
+  int rows, cols, nnz;
+  std::vector<double> values, diag;
+  std::vector<int> columns, rowIndex;
+  std::string line;
+
+  file >> rows >> cols >> nnz;
+
+  while (file >> line) {
+    if (line == "values") {
+      values.resize(nnz);
+      for (double &val : values)
+        file >> val;
+    } else if (line == "columns") {
+      columns.resize(nnz);
+      for (int &col : columns)
+        file >> col;
+    } else if (line == "rowIndex") {
+      rowIndex.resize(rows + 1);
+      for (int &row : rowIndex)
+        file >> row;
+    } else if (line == "diag") {
+      diag.resize(rows);
+      for (double &d : diag)
+        file >> d;
+    }
+  }
+
+  return {values, columns, rowIndex, diag, rows, cols, nnz};
+}
+
+int main() {
+
+  auto [values, columns, rowIndex, diag, rows, cols, nnz] =
+      readCSRFromFile("../sparse_matrix.txt");
+
+  linalg::SparseMatrix<double> A(linalg::MatrixFillMode::UPPER, values, columns,
+                                 rowIndex, rows, cols);
+
+  auto transformer = [&](const std::vector<double> &v) { return A * v; };
+  auto start = std::chrono::high_resolution_clock::now();
+  linalg::davidson_solver(transformer, diag.data(), rows);
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration =
+      std::chrono::duration_cast<std::chrono::microseconds>(end - start);
   return 0;
 }

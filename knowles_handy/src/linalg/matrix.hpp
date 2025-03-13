@@ -73,6 +73,47 @@ public:
     }
   }
 
+  // 拷贝赋值函数
+  Matrix &operator=(const Matrix &other) {
+    if (this != &other) {
+      // 分配新内存
+      T *new_data =
+          static_cast<T *>(mkl_malloc(other.ld_ * other.ncol_ * sizeof(T), 64));
+      if (!new_data)
+        throw std::bad_alloc();
+
+      // 计算要拷贝的元素数量
+      size_t num_elements = other.nrow_ * other.ncol_;
+
+      // 根据数据类型选择拷贝方式
+      if constexpr (std::is_same_v<T, double>) {
+        cblas_dcopy(num_elements, other.data_, 1, new_data, 1);
+      } else if constexpr (std::is_same_v<T, float>) {
+        cblas_scopy(num_elements, other.data_, 1, new_data, 1);
+      } else if constexpr (std::is_same_v<T, std::complex<double>>) {
+        cblas_zcopy(num_elements, reinterpret_cast<const double *>(other.data_),
+                    1, reinterpret_cast<double *>(new_data), 1);
+      } else if constexpr (std::is_same_v<T, std::complex<float>>) {
+        cblas_ccopy(num_elements, reinterpret_cast<const float *>(other.data_),
+                    1, reinterpret_cast<float *>(new_data), 1);
+      } else {
+        std::memcpy(new_data, other.data_, num_elements * sizeof(T));
+      }
+
+      // 释放旧数据
+      if (data_)
+        mkl_free(data_);
+
+      // 更新成员变量
+      data_ = new_data;
+      layout_ = other.layout_;
+      trans_ = other.trans_;
+      ncol_ = other.ncol_;
+      nrow_ = other.nrow_;
+      ld_ = other.ld_;
+    }
+    return *this;
+  }
   // 移动构造函数
   Matrix(Matrix &&other) noexcept
       : data_(other.data_), layout_(other.layout_), trans_(other.trans_),
@@ -94,9 +135,7 @@ public:
   }
 
   // 获取矩阵维度信息
-  inline std::size_t rows() const {
-    return (trans_ == CblasNoTrans) ? nrow_ : ncol_;
-  }
+  inline std::size_t rows() const { return nrow_; }
   inline std::vector<T> row(std::size_t i) const {
     if (trans_ == CblasNoTrans) {
       auto cols = ncol_;
@@ -109,9 +148,7 @@ public:
       throw std::runtime_error("Matrix is transposed");
     }
   }
-  inline std::size_t cols() const {
-    return (trans_ == CblasNoTrans) ? ncol_ : nrow_;
-  }
+  inline std::size_t cols() const { return ncol_; }
   inline std::vector<T> col(std::size_t j) {
     if (trans_ == CblasNoTrans) {
       auto rows = this->nrow_;

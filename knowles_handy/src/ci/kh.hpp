@@ -4,5 +4,6 @@
 
 #include "linalg/davidson.hpp"
 #include "linalg/matrix.hpp"
+#include "linalg/sparse_matrix.hpp"
 
 #endif
