@@ -105,7 +105,7 @@ public:
         parts.emplace_back(part);
       }
       norb_ = std::stoi(parts[2].substr(0, parts[2].length() - 1));
-      nelec_ = std::stoi(parts[4].substr(0, parts[4].length() - 1));
+      // nelec_ = std::stoi(parts[4].substr(0, parts[4].length() - 1));
 
       // Initialize one-electron integral matrix
       int1e_.resize(norb_, norb_);
@@ -160,7 +160,7 @@ public:
   }
 
   // Get one-electron integral value
-  const Type h1e(std::size_t p, std::size_t q) { return int1e_(p, q); }
+  const Type h1e(std::size_t p, std::size_t q) const { return int1e_(p, q); }
 
   // Get two-electron integral value
   const Type h2e(std::size_t p, std::size_t q, std::size_t r,

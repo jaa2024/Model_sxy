@@ -400,8 +400,8 @@ auto readH(const std::string &fileName) -> Eigen::MatrixXd {
 
 auto main() -> int {
   auto start = std::chrono::system_clock::now();
-  auto dets = readDets("../example/n2_cas66/electron_configurations.txt");
-  auto integral = Integral("../example/n2_cas66/fcidump.example1");
+  auto dets = readDets("../example/n2_fci/electron_configurations.txt");
+  auto integral = Integral("../example/n2_fci/fcidump.example1");
 
   auto ndet = dets.size();
 
