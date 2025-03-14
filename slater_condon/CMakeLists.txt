@@ -1,35 +1,36 @@
 cmake_minimum_required(VERSION 3.28)
 
-# 设置项目名称和语言
-project(SC_Full_CI LANGUAGES CXX)
+project(Edgerunner LANGUAGES CXX)
 
-# 设置 C++ 标准为 C++20
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Set the C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-
-# 添加额外的编译选项（只在 Release 模式下）
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    if(UNIX)
-        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
-    endif()
-    if(MSVC)
-        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /arch:AVX2")
-    endif()
-endif()
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty)
-
-enable_testing()
-# 添加可执行文件
-add_executable(SC_Full_CI main.cpp)
-
+# Find OpenMP
 find_package(OpenMP REQUIRED)
 find_package(Threads REQUIRED)
 
+# --------------------> MKL (required) <--------------------
+message(STATUS "MKL support enabled.")
+set(MKLLIB "-L${MKLROOT}/lib -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl")
+include_directories(${MKLROOT}/include)
+# --------------------> fmt <--------------------
+add_subdirectory(external/fmt)
+# --------------------> END  <--------------------
 
-target_link_libraries( SC_Full_CI
-        Threads::Threads
-        OpenMP::OpenMP_CXX
-        )
+file(GLOB_RECURSE src_lianlg "src/linalg/*.[ch]pp")
+file(GLOB_RECURSE src_integral "src/integral/*.[ch]pp")
+file(GLOB_RECURSE src_ci "src/ci/*.[ch]pp")
 
-        
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_executable(Edgerunner ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp 
+                ${src_lianlg} 
+                ${src_integral} 
+                ${src_ci})
+
+target_link_libraries(Edgerunner PRIVATE
+                      ${MKLLIB}
+                      fmt::fmt
+                      OpenMP::OpenMP_CXX 
+                      Threads::Threads  )
+
