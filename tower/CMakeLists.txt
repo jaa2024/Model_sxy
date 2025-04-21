@@ -113,19 +113,15 @@ elseif(BLAS_TYPE STREQUAL "IntelMKL")
             mkl_intel_lp64 mkl_intel_thread mkl_core iomp5
         )
     elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        target_link_options(tower_core INTERFACE "LINKER:-Wl,--no-as-needed,--start-group")
         target_link_libraries(tower_core INTERFACE 
             -L${MKLROOT}/lib 
             mkl_intel_lp64 mkl_gnu_thread mkl_core gomp
         )
-        target_link_options(tower_core INTERFACE "LINKER:--end-group")
     elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-        target_link_options(tower_core INTERFACE "LINKER:-Wl,--no-as-needed,--start-group")
         target_link_libraries(tower_core INTERFACE 
             -L${MKLROOT}/lib 
             mkl_intel_lp64 mkl_intel_thread mkl_core iomp5
         )
-        target_link_options(tower_core INTERFACE "LINKER:--end-group")
     endif()
     
     target_link_libraries(tower_core INTERFACE pthread m dl)
