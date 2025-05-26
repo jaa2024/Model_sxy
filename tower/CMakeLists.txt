@@ -72,23 +72,47 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
 else()
     set(FMTLIB ${FMTROOT}/libfmtd.a)
 endif()
-# --------------------> Core Library (Shared) <--------------------
-add_library(tower_core INTERFACE 
-    ${CMAKE_SOURCE_DIR}/src/matrix.hpp
-    # Add other core source files here
+# --------------------> libcint (required) <--------------------
+ExternalProject_Add(
+  cint
+  PREFIX ${CMAKE_BINARY_DIR}
+  SOURCE_DIR ${CMAKE_SOURCE_DIR}/external/libcint
+  INSTALL_DIR ${CMAKE_BINARY_DIR}/libcint
+  CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+  -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+  -DENABLE_STATIC=ON
+  -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE
+  -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/libcint
 )
-target_include_directories(tower_core INTERFACE 
+ExternalProject_Get_Property(cint BINARY_DIR)
+get_filename_component(CINTROOT ${BINARY_DIR} ABSOLUTE)
+include_directories(${CINTROOT}/include)
+set(CINTLIB "-Wl,--start-group ${CINTROOT}/libcint.a -Wl,--end-group")
+execute_process(COMMAND ${CMAKE_C_COMPILER} -print-file-name=libquadmath.a
+  OUTPUT_VARIABLE QUADMATH_LIB
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+message("-> Using quadmath library: ${QUADMATH_LIB}")
+# --------------------> Core Library (Shared) <--------------------
+file(GLOB_RECURSE SOURCES_C "src/integral/*.c")
+set_source_files_properties(${SOURCES_C} PROPERTIES LANGUAGE C)
+add_library(tower_c_objects OBJECT ${SOURCES_C})
+target_include_directories(tower_c_objects PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/external/eigen
     ${CMAKE_SOURCE_DIR}/external/WignerSymbol
     ${CMAKE_SOURCE_DIR}/src
 )
-target_link_libraries(tower_core INTERFACE ${FMTLIB} ${CINTLIB})
+add_library(tower_core INTERFACE)
+target_sources(tower_core INTERFACE  $<TARGET_OBJECTS:tower_c_objects>  # 链接 OBJECT 文件
+${src_integral}                   # 头文件
+)
+target_link_libraries(tower_core INTERFACE ${FMTLIB} ${CINTLIB} ${QUADMATH_LIB} -static-libstdc++)
 target_compile_definitions(tower_core INTERFACE ${CMAKE_BINA_DIR}
 )
 
 # --------------------> BLAS/LAPACK Configuration <--------------------
-set(BLAS_TYPE "OpenBLAS" CACHE STRING "BLAS implementation")
+set(BLAS_TYPE "IntelMKL" CACHE STRING "BLAS implementation")
 set_property(CACHE BLAS_TYPE PROPERTY STRINGS "OpenBLAS" "IntelMKL")
 
 if(BLAS_TYPE STREQUAL "OpenBLAS")
@@ -139,15 +163,18 @@ if(BUILD_TYPE STREQUAL "EXECUTABLE")
     message(STATUS "Building standalone executable")
 
 elseif(BUILD_TYPE STREQUAL "PYTHON_LIBRARY")
-    pybind11_add_module(pyTower
-        ${CMAKE_SOURCE_DIR}/pybind11/pybind11_eigen.cpp
-        
+    pybind11_add_module(Tower
+        # ${CMAKE_SOURCE_DIR}/pybind11/pybind11_eigen.cpp
+        ${CMAKE_SOURCE_DIR}/src/pybind11/pybind11_integral.cpp
+        ${CMAKE_SOURCE_DIR}/src/pybind11/pybind11_x2camf.cpp
+        ${CMAKE_SOURCE_DIR}/src/pybind11/pybind11.cpp
+        # add more
     )
-    target_link_libraries(pyTower PRIVATE tower_core)
-    target_include_directories(pyTower PRIVATE 
+    target_link_libraries(Tower PRIVATE tower_core )
+    target_include_directories(Tower PRIVATE 
     tower_core
     ${CMAKE_SOURCE_DIR}/external/eigen 
     ${CMAKE_SOURCE_DIR}/external/WignerSymbol)
-    install(TARGETS pyTower LIBRARY DESTINATION ${Python_SITEARCH})
+    install(TARGETS Tower LIBRARY DESTINATION ${Python_SITEARCH})
     message(STATUS "Building Python library for version ${Python_VERSION}")
 endif()
