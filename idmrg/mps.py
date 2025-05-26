@@ -205,12 +205,6 @@ class HeisenbergModel:
         direction: str,
     ) -> Tuple[float, NDArray, NDArray, float, int]:
         """Optimizes two-site tensors to minimize energy."""
-        print("a.shape", a.shape)
-        print("b.shape", b.shape)
-        print("e.shape", e.shape)
-        print("f.shape", f.shape)
-        print("w1.shape", w1.shape)
-        print("w2.shape", w2.shape)
         w = self.mpo.coarse_grain(w1, w2)
         aa = self.mps.coarse_grain(a, b)
 
@@ -228,73 +222,72 @@ class HeisenbergModel:
 
         return eigenvalue[0], a, b, truncation, states
 
-    def run_dmrg(self, arg="debug") -> List[NDArray]:
+    def run_dmrg(self) -> List[NDArray]:
         """Runs the two-site DMRG algorithm."""
         e_matrices, f_matrices = self.construct_boundaries()
         f_matrices.pop()  # Remove last F matrix as it's not needed initially
 
-        for sweep in range(self.num_sweeps // 2):
-            # Right sweep
-            for i in range(0, len(self.mps.mps) - 2):
-                energy, self.mps.mps[i], self.mps.mps[i + 1], trunc, states = (
-                    self.optimize_two_sites(
-                        self.mps.mps[i],
-                        self.mps.mps[i + 1],
-                        self.mpo.mpo[i],
-                        self.mpo.mpo[i + 1],
-                        e_matrices[-1],
-                        f_matrices[-1],
-                        "right",
-                    )
+        # Right sweep
+        print("Starting right sweep...")
+        for i in range(0, len(self.mps.mps) - 2):
+            energy, self.mps.mps[i], self.mps.mps[i + 1], trunc, states = (
+                self.optimize_two_sites(
+                    self.mps.mps[i],
+                    self.mps.mps[i + 1],
+                    self.mpo.mpo[i],
+                    self.mpo.mpo[i + 1],
+                    e_matrices[-1],
+                    f_matrices[-1],
+                    "right",
                 )
-                if arg != "quiet":
-                    print(
-                        f"Sweep {sweep*2} Sites {i},{i+1}    "
-                        f"Energy {energy:16.12f}    States {states:4} "
-                        f"Truncation {trunc:16.12f}"
-                    )
+            )
+            print(
+                f" Sites {i}->{i + 1}    "
+                f"Energy {energy:16.12f}    States {states:4} "
+                f"Truncation {trunc:16.12f}"
+            )
 
-                e_matrices.append(
-                    self.contract_left(
-                        self.mpo.mpo[i],
-                        self.mps.mps[i],
-                        e_matrices[-1],
-                        self.mps.mps[i],
-                    )
+            e_matrices.append(
+                self.contract_left(
+                    self.mpo.mpo[i],
+                    self.mps.mps[i],
+                    e_matrices[-1],
+                    self.mps.mps[i],
                 )
-                f_matrices.pop()
+            )
+            f_matrices.pop()
 
-            # Left sweep
-            for i in range(len(self.mps.mps) - 2, 0, -1):
-                energy, self.mps.mps[i], self.mps.mps[i + 1], trunc, states = (
-                    self.optimize_two_sites(
-                        self.mps.mps[i],
-                        self.mps.mps[i + 1],
-                        self.mpo.mpo[i],
-                        self.mpo.mpo[i + 1],
-                        e_matrices[-1],
-                        f_matrices[-1],
-                        "left",
-                    )
+        # Left sweep
+        print("Starting left sweep...")
+        for i in range(len(self.mps.mps) - 2, 0, -1):
+            energy, self.mps.mps[i], self.mps.mps[i + 1], trunc, states = (
+                self.optimize_two_sites(
+                    self.mps.mps[i],
+                    self.mps.mps[i + 1],
+                    self.mpo.mpo[i],
+                    self.mpo.mpo[i + 1],
+                    e_matrices[-1],
+                    f_matrices[-1],
+                    "left",
                 )
-                if arg != "quiet":
-                    print(
-                        f"Sweep {sweep*2 + 1} Sites {i},{i+1}    "
-                        f"Energy {energy:16.12f}    States {states:4} "
-                        f"Truncation {trunc:16.12f}"
-                    )
+            )
+            print(
+                f" Sites {i}->{i - 1}    "
+                f"Energy {energy:16.12f}    States {states:4} "
+                f"Truncation {trunc:16.12f}"
+            )
 
-                f_matrices.append(
-                    self.contract_right(
-                        self.mpo.mpo[i + 1],
-                        self.mps.mps[i + 1],
-                        f_matrices[-1],
-                        self.mps.mps[i + 1],
-                    )
+            f_matrices.append(
+                self.contract_right(
+                    self.mpo.mpo[i + 1],
+                    self.mps.mps[i + 1],
+                    f_matrices[-1],
+                    self.mps.mps[i + 1],
                 )
-                e_matrices.pop()
+            )
+            e_matrices.pop()
 
-        return self.mps.mps
+        return energy, trunc, states
 
     def calculate_expectation(self) -> float:
         """Calculates the expectation value of the Hamiltonian for the MPS."""
@@ -336,9 +329,10 @@ def main() -> None:
     """Main function to demonstrate DMRG calculation."""
     # Model parameters
     LOCAL_DIM = 2  # Local bond dimension
-    NUM_SITES = 10  # Number of sites
-    BOND_DIM = 100  # Bond dimension for DMRG
-    NUM_SWEEPS = 8  # Number of DMRG sweeps
+    NUM_SITES = 20  # Number of sites
+    BOND_DIM = 1000  # Bond dimension for DMRG
+    NUM_SWEEPS = 30  # Number of DMRG sweeps
+    CONVERGENCE_THRESHOLD = 1e-6  # Convergence threshold for energy
 
     # Initialize quantum state components
     mpo = MPO(local_dim=LOCAL_DIM, num_sites=NUM_SITES)
@@ -348,16 +342,31 @@ def main() -> None:
     model = HeisenbergModel(mps=mps, mpo=mpo, bond_dim=BOND_DIM, num_sweeps=NUM_SWEEPS)
 
     try:
+        E_old = 0.0  # Previous energy for convergence check
+        print("Starting DMRG calculation...")
+        print(f"Local dimension: {LOCAL_DIM}, Number of sites: {NUM_SITES}")
+        print(f"Bond dimension: {BOND_DIM}, Number of sweeps: {NUM_SWEEPS}")
+        print(f"Convergence threshold: {CONVERGENCE_THRESHOLD}")
         # Run DMRG optimization
-        model.run_dmrg()
+        for sweep in range(model.num_sweeps):
+            energy, truncation, states = model.run_dmrg()
+            print(
+                f" Sweep {sweep}, Energy: {energy:16.12f},States: {states},Truncation: {truncation:16.12f}"
+            )
 
-        # Calculate and display results
-        final_energy = model.calculate_expectation()
-        print("\nFinal Results:")
-        print(f"Energy expectation value: {final_energy:16.12f}")
+            if abs(energy - E_old) < CONVERGENCE_THRESHOLD:
+                print(f"\nDMRG Convergence in {sweep + 1} sweeps.")
+                # Calculate and display results
+                final_energy = model.calculate_expectation()
+                print("Final Results:")
+                print(f"Energy expectation value: {(final_energy / NUM_SITES):16.12f}")
 
-        variance = model.calculate_variance()
-        print(f"Energy variance: {variance:16.12f}")
+                variance = model.calculate_variance()
+                print(f"Energy variance: {variance:16.12f}")
+
+                break
+            else:
+                E_old = energy
 
     except Exception as e:
         print(f"Error during DMRG calculation: {str(e)}")
