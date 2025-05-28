@@ -1,377 +1,386 @@
-from dataclasses import dataclass
-from typing import List, Tuple, Optional
 import numpy as np
-from scipy.sparse import linalg
-from numpy.typing import NDArray
 
 
-@dataclass
 class MPO:
-    """Matrix Product Operator (MPO) for representing Hamiltonians."""
+    """
+    build MPO list for DMRG.
+    :param single_mpo: a numpy ndarray with ndim=4.
+    The first 2 dimensions reprsents the square shape of the MPO and the last 2 dimensions are physical dimensions.
+    :param site_num: the total number of sites
+    :param regularize: whether regularize the mpo so that it represents the average over all sites.
+    :return MPO list
+    The bond order of the local operator is [left, right, up, down], as
+                                    | 2
+                                0 --#-- 1
+                                    | 3
+    """
 
-    local_dim: int
-    num_sites: int
-    mpo: Optional[List[NDArray]] = None
-
-    def __post_init__(self) -> None:
-        """Initialize MPO after dataclass creation."""
-        self.mpo = self.construct_mpo()
-
-    def construct_mpo(self) -> List[NDArray]:
-        """Constructs MPO for the Heisenberg Hamiltonian."""
-        # Define local operators
-        identity = np.identity(2)
-        zeros = np.zeros((2, 2))
-        sz = np.array([[0.5, 0], [0, -0.5]])
-        sp = np.array([[0, 0], [1, 0]])  # S^+
-        sm = np.array([[0, 1], [0, 0]])  # S^-
-
-        # MPO tensors for each site in the chain
-        w_bulk = np.array(
-            [
-                [identity, zeros, zeros, zeros, zeros],
-                [sp, zeros, zeros, zeros, zeros],
-                [sm, zeros, zeros, zeros, zeros],
-                [sz, zeros, zeros, zeros, zeros],
-                [zeros, 0.5 * sm, 0.5 * sp, sz, identity],
-            ]
+    def __init__(self, single_mpo, site_num):
+        # the first MPO, only contains the last row
+        mpo_first = single_mpo[-1].copy()
+        mpo_first = mpo_first.reshape((1,) + mpo_first.shape)
+        # the last MPO, only contains the first column
+        mpo_last = single_mpo[:, 0].copy()
+        mpo_last = mpo_last.reshape((mpo_last.shape[0],) + (1,) + mpo_last.shape[1:])
+        self.mpo_list = (
+            [mpo_first] + [single_mpo.copy() for _ in range(site_num - 2)] + [mpo_last]
         )
 
-        w_first = np.array([[zeros, 0.5 * sm, 0.5 * sp, sz, identity]])
-        w_last = np.array([[identity], [sp], [sm], [sz], [zeros]])
-
-        return [w_first] + [w_bulk] * (self.num_sites - 2) + [w_last]
-
-    def product(self, other: "MPO") -> List[NDArray]:
-        """Multiplies two MPOs element-wise."""
-        if not self.mpo or not other.mpo or len(self.mpo) != len(other.mpo):
-            raise ValueError("Invalid MPO multiplication")
-
-        return [self._tensor_product(w1, w2) for w1, w2 in zip(self.mpo, other.mpo)]
-
-    @staticmethod
-    def _tensor_product(w1: NDArray, w2: NDArray) -> NDArray:
-        """Helper function to combine two MPO tensors."""
-        product = np.einsum("abst,cdtu->acbdsu", w1, w2, optimize=True)
-        new_shape = [
-            w1.shape[0] * w2.shape[0],
-            w1.shape[1] * w2.shape[1],
-            w1.shape[2],
-            w2.shape[3],
-        ]
-        return np.reshape(product, new_shape)
-
-    def coarse_grain(self, w: NDArray, x: NDArray) -> NDArray:
-        """Coarse-grains two site MPO tensors into a single tensor."""
-        product = np.einsum("abst,bcuv->acsutv", w, x, optimize=True)
-        return np.reshape(
-            product,
-            [w.shape[0], x.shape[1], w.shape[2] * x.shape[2], w.shape[3] * x.shape[3]],
-        )
+    @property
+    def mpo(self):
+        return self.mpo_list
 
 
-@dataclass
 class MPS:
-    """Matrix Product State (MPS) representing the state of the system."""
+    """
+    build MPS list for DMRG.
+    local matrix product state tensor
+    bond order: [left, physical, right]
+                    1
+                    |
+                0 --*-- 2
+    """
 
-    local_dim: int
-    num_sites: int
-    mps: Optional[List[NDArray]] = None
-
-    def __post_init__(self) -> None:
-        """Initialize MPS after dataclass creation."""
-        self.mps = self.initialize_state()
-
-    def initialize_state(self) -> List[NDArray]:
-        """Initializes the MPS state to |01010101...>"""
-        initial_a1 = np.zeros((self.local_dim, 1, 1))
-        initial_a1[0, 0, 0] = 1
-        initial_a2 = np.zeros((self.local_dim, 1, 1))
-        initial_a2[1, 0, 0] = 1
-        return [initial_a1, initial_a2] * (self.num_sites // 2)
-
-    @staticmethod
-    def initial_boundary(w: NDArray, is_left: bool = True) -> NDArray:
-        """Initializes boundary matrices for the vacuum state."""
-        shape = w.shape[0] if is_left else w.shape[1]
-        boundary = np.zeros((shape, 1, 1))
-        boundary[0 if is_left else -1] = 1
-        return boundary
-
-    def coarse_grain(self, a: NDArray, b: NDArray) -> NDArray:
-        """Coarse-grains two MPS sites into one."""
-        product = np.einsum("sij,tjk->stik", a, b, optimize=True)
-        return np.reshape(product, [a.shape[0] * b.shape[0], a.shape[1], b.shape[2]])
-
-    def fine_grain(
-        self, a: NDArray, dims: Tuple[int, int]
-    ) -> Tuple[NDArray, NDArray, NDArray]:
-        """Performs fine-graining on MPS, splitting a single coarse-grained site."""
-        if a.shape[0] != dims[0] * dims[1]:
-            raise ValueError("Invalid dimensions for fine graining")
-
-        theta = np.transpose(
-            np.reshape(a, dims + [a.shape[1], a.shape[2]]), (0, 2, 1, 3)
+    def __init__(self, phy_dim, bond_dim, site_num, error_thresh=0.0):
+        mps_first = np.random.random((1, phy_dim, bond_dim))
+        mps_last = np.random.random((bond_dim, phy_dim, 1))
+        self.mps_list = (
+            [mps_first]
+            + [
+                np.random.random((bond_dim, phy_dim, bond_dim))
+                for _ in range(site_num - 2)
+            ]
+            + [mps_last]
         )
-        m_matrix = np.reshape(theta, (dims[0] * a.shape[1], dims[1] * a.shape[2]))
-        u, s, v = np.linalg.svd(m_matrix, full_matrices=False)
 
-        u = np.reshape(u, (dims[0], a.shape[1], -1))
-        v = np.transpose(np.reshape(v, (-1, dims[1], a.shape[2])), (1, 0, 2))
-
-        return u, s, v
-
-    def truncate(
-        self, u: NDArray, s: NDArray, v: NDArray, max_dim: int
-    ) -> Tuple[NDArray, NDArray, NDArray, float, int]:
-        """Truncates MPS tensors by retaining the max_dim largest singular values."""
-        dim = min(len(s), max_dim)
-        truncation = float(np.sum(s[dim:]))
-
-        s = s[:dim]
-        u = u[..., :dim]
-        v = v[:, :dim, :]
-
-        return u, s, v, truncation, dim
+    @property
+    def mps(self):
+        return self.mps_list
 
 
-class HamiltonianOperator(linalg.LinearOperator):
-    """Hamiltonian-vector multiplication operator for eigensolver."""
-
-    def __init__(self, e: NDArray, w: NDArray, f: NDArray):
-        self.e = e
-        self.w = w
-        self.f = f
-        self.req_shape = [w.shape[2], e.shape[1], f.shape[1]]
-        size = np.prod(self.req_shape)
-        super().__init__(dtype=np.dtype("float64"), shape=(size, size))
-
-    def _matvec(self, vector: NDArray) -> NDArray:
-        """Implements matrix-vector product with Hamiltonian MPO representation."""
-        shaped_vector = np.reshape(vector, self.req_shape)
-        result = np.einsum("aij,sik->ajsk", self.e, shaped_vector, optimize=True)
-        result = np.einsum("ajsk,abst->bjtk", result, self.w, optimize=True)
-        result = np.einsum("bjtk,bkl->tjl", result, self.f, optimize=True)
-        return np.reshape(result, -1)
-
-
-@dataclass
-class HeisenbergModel:
-    """Heisenberg model implementing the two-site DMRG algorithm."""
-
-    mps: MPS
-    mpo: MPO
-    bond_dim: int
-    num_sweeps: int
-
-    def contract_left(self, w: NDArray, a: NDArray, e: NDArray, b: NDArray) -> NDArray:
-        """Contracts tensors from the left side."""
-        temp = np.einsum("sij,aik->sajk", a, e, optimize=True)
-        temp = np.einsum("sajk,abst->tbjk", temp, w, optimize=True)
-        return np.einsum("tbjk,tkl->bjl", temp, b, optimize=True)
-
-    def contract_right(self, w: NDArray, a: NDArray, f: NDArray, b: NDArray) -> NDArray:
-        """Contracts tensors from the right side."""
-        temp = np.einsum("sij,bjl->sbil", a, f, optimize=True)
-        temp = np.einsum("sbil,abst->tail", temp, w, optimize=True)
-        return np.einsum("tail,tkl->aik", temp, b, optimize=True)
-
-    def construct_boundaries(self) -> Tuple[List[NDArray], List[NDArray]]:
-        """Constructs boundary matrices for DMRG sweeps."""
-        if not self.mpo.mpo or not self.mps.mps:
-            raise ValueError("MPO or MPS not initialized")
-
-        # Initialize boundaries
-        f_matrices = [self.mps.initial_boundary(self.mpo.mpo[-1], is_left=False)]
-        e_matrices = [self.mps.initial_boundary(self.mpo.mpo[0], is_left=True)]
-
-        # Construct right boundary matrices
-        for i in range(len(self.mpo.mpo) - 1, 0, -1):
-            f_matrices.append(
-                self.contract_right(
-                    self.mpo.mpo[i], self.mps.mps[i], f_matrices[-1], self.mps.mps[i]
-                )
-            )
-        return e_matrices, f_matrices
-
-    def optimize_two_sites(
-        self,
-        a: NDArray,
-        b: NDArray,
-        w1: NDArray,
-        w2: NDArray,
-        e: NDArray,
-        f: NDArray,
-        direction: str,
-    ) -> Tuple[float, NDArray, NDArray, float, int]:
-        """Optimizes two-site tensors to minimize energy."""
-        w = self.mpo.coarse_grain(w1, w2)
-        aa = self.mps.coarse_grain(a, b)
-
-        hamiltonian = HamiltonianOperator(e, w, f)
-        eigenvalue, eigenvector = linalg.eigsh(hamiltonian, k=1, v0=aa, which="SA")
-
-        aa = np.reshape(eigenvector[:, 0], hamiltonian.req_shape)
-        a, s, b = self.mps.fine_grain(aa, [a.shape[0], b.shape[0]])
-        a, s, b, truncation, states = self.mps.truncate(a, s, b, self.bond_dim)
-
-        if direction == "right":
-            b = np.einsum("ij,sjk->sik", np.diag(s), b, optimize=True)
-        else:
-            a = np.einsum("sij,jk->sik", a, np.diag(s), optimize=True)
-
-        return eigenvalue[0], a, b, truncation, states
-
-    def run_dmrg(self) -> List[NDArray]:
-        """Runs the two-site DMRG algorithm."""
-        e_matrices, f_matrices = self.construct_boundaries()
-        f_matrices.pop()  # Remove last F matrix as it's not needed initially
-
-        # Right sweep
-        print("Starting right sweep...")
-        for i in range(0, len(self.mps.mps) - 2):
-            energy, self.mps.mps[i], self.mps.mps[i + 1], trunc, states = (
-                self.optimize_two_sites(
-                    self.mps.mps[i],
-                    self.mps.mps[i + 1],
-                    self.mpo.mpo[i],
-                    self.mpo.mpo[i + 1],
-                    e_matrices[-1],
-                    f_matrices[-1],
-                    "right",
-                )
-            )
-            print(
-                f" Sites {i}->{i + 1}    "
-                f"Energy {energy:16.12f}    States {states:4} "
-                f"Truncation {trunc:16.12f}"
-            )
-
-            e_matrices.append(
-                self.contract_left(
-                    self.mpo.mpo[i],
-                    self.mps.mps[i],
-                    e_matrices[-1],
-                    self.mps.mps[i],
-                )
-            )
-            f_matrices.pop()
-
-        # Left sweep
-        print("Starting left sweep...")
-        for i in range(len(self.mps.mps) - 2, 0, -1):
-            energy, self.mps.mps[i], self.mps.mps[i + 1], trunc, states = (
-                self.optimize_two_sites(
-                    self.mps.mps[i],
-                    self.mps.mps[i + 1],
-                    self.mpo.mpo[i],
-                    self.mpo.mpo[i + 1],
-                    e_matrices[-1],
-                    f_matrices[-1],
-                    "left",
-                )
-            )
-            print(
-                f" Sites {i}->{i - 1}    "
-                f"Energy {energy:16.12f}    States {states:4} "
-                f"Truncation {trunc:16.12f}"
-            )
-
-            f_matrices.append(
-                self.contract_right(
-                    self.mpo.mpo[i + 1],
-                    self.mps.mps[i + 1],
-                    f_matrices[-1],
-                    self.mps.mps[i + 1],
-                )
-            )
-            e_matrices.pop()
-
-        return energy, trunc, states
-
-    def calculate_expectation(self) -> float:
-        """Calculates the expectation value of the Hamiltonian for the MPS."""
-        if not self.mpo.mpo or not self.mps.mps:
-            raise ValueError("MPO or MPS not initialized")
-
-        expectation = np.array([[[1.0]]])
-        for i in range(len(self.mpo.mpo)):
-            expectation = self.contract_left(
-                self.mpo.mpo[i], self.mps.mps[i], expectation, self.mps.mps[i]
-            )
-        return float(expectation[0][0][0])
-
-    def calculate_variance(self) -> float:
-        """Calculates the variance to measure the accuracy of the ground state energy."""
-        if not self.mpo.mpo or not self.mps.mps:
-            raise ValueError("MPO or MPS not initialized")
-
-        ham_squared = self.mpo.product(self.mpo)  # Square of the Hamiltonian operator
-        energy = self.calculate_expectation()
-        h2_expectation = self._calculate_mpo_expectation(ham_squared)
-
-        return float(h2_expectation - energy**2)
-
-    def _calculate_mpo_expectation(self, mpo_tensors: List[NDArray]) -> float:
-        """Helper to calculate expectation value with arbitrary MPO."""
-        if not self.mps.mps:
-            raise ValueError("MPS not initialized")
-
-        expectation = np.array([[[1.0]]])
-        for i, mpo_tensor in enumerate(mpo_tensors):
-            expectation = self.contract_left(
-                mpo_tensor, self.mps.mps[i], expectation, self.mps.mps[i]
-            )
-        return float(expectation[0][0][0])
+def svd_compress(tensor, direction, maxM):
+    """
+    Perform svd compression on the self.matrix. Used in the canonical process.
+    :param direction: To which the matrix is compressed
+    :return: The u,s,v value of the svd decomposition. Truncated if self.thresh is provided.
+    """
+    left_argument_set = ["l", "left"]
+    right_argument_set = ["r", "right"]
+    assert direction in (left_argument_set + right_argument_set)
+    left, phy_dim, right = tensor.shape
+    if direction in left_argument_set:
+        u, s, v = np.linalg.svd(
+            tensor.reshape(left * phy_dim, right), full_matrices=False
+        )
+    else:
+        u, s, v = np.linalg.svd(
+            tensor.reshape(left, phy_dim * right), full_matrices=False
+        )
+    if len(s) > maxM:  # do truncation
+        return u[:, :maxM], s[:maxM], v[:maxM, :]
+    return u, s, v
 
 
-def main() -> None:
-    """Main function to demonstrate DMRG calculation."""
-    # Model parameters
-    LOCAL_DIM = 2  # Local bond dimension
-    NUM_SITES = 20  # Number of sites
-    BOND_DIM = 1000  # Bond dimension for DMRG
-    NUM_SWEEPS = 30  # Number of DMRG sweeps
-    CONVERGENCE_THRESHOLD = 1e-6  # Convergence threshold for energy
+class DMRG:
+    """
+    DMRG algorithm for MPS.
+    """
 
-    # Initialize quantum state components
-    mpo = MPO(local_dim=LOCAL_DIM, num_sites=NUM_SITES)
-    mps = MPS(local_dim=LOCAL_DIM, num_sites=NUM_SITES)
+    def __init__(
+        self, mpo, mps, max_bond_dimension=0, max_sweeps=20, error_threshold=1e-6
+    ):
+        """
+        Initialize a MatrixProductState with given bond dimension.
+        :param mpo_list: the list for MPOs. The site num depends on the length of the list
+        :param max_bond_dimension: the bond dimension required. The higher bond dimension, the higher accuracy and compuational cost
+        :param error_threshold: error threshold used in svd compressing of the matrix state.
+        The lower the threshold, the higher the accuracy.
+        """
 
-    # Create and run Heisenberg model
-    model = HeisenbergModel(mps=mps, mpo=mpo, bond_dim=BOND_DIM, num_sweeps=NUM_SWEEPS)
+        if max_bond_dimension == 0:
+            raise ValueError("Must provide max_bond_dimension")
+        self.max_bond_dimension = max_bond_dimension
+        self.max_sweeps = max_sweeps
+        self.error_threshold = error_threshold
+        self.site_num = len(mpo)
+        # dummy local tensor and local operator
+        self.mpo_list = [np.zeros((0, 0, 0))] + mpo + [np.zeros((0, 0, 0))]
+        self.mps_list = [np.zeros((0, 0, 0))] + mps + [np.zeros((0, 0, 0))]
+        self.F_list = (
+            [np.ones((1,) * 6)]
+            + [None for _ in range(self.site_num)]
+            + [np.ones((1,) * 6)]
+        )
+        self.L_list = self.F_list.copy()
+        self.R_list = self.F_list.copy()
+        # do right canonicalization
+        self.right_canonicalize_from(idx=self.site_num)
 
-    try:
-        E_old = 0.0  # Previous energy for convergence check
-        print("Starting DMRG calculation...")
-        print(f"Local dimension: {LOCAL_DIM}, Number of sites: {NUM_SITES}")
-        print(f"Bond dimension: {BOND_DIM}, Number of sweeps: {NUM_SWEEPS}")
-        print(f"Convergence threshold: {CONVERGENCE_THRESHOLD}")
-        # Run DMRG optimization
-        for sweep in range(model.num_sweeps):
-            energy, truncation, states = model.run_dmrg()
-            print(
-                f" Sweep {sweep}, Energy: {energy:16.12f},States: {states},Truncation: {truncation:16.12f}"
-            )
-
-            if abs(energy - E_old) < CONVERGENCE_THRESHOLD:
-                print(f"\nDMRG Convergence in {sweep + 1} sweeps.")
-                # Calculate and display results
-                final_energy = model.calculate_expectation()
-                print("Final Results:")
-                print(f"Energy expectation value: {(final_energy / NUM_SITES):16.12f}")
-
-                variance = model.calculate_variance()
-                print(f"Energy variance: {variance:16.12f}")
-
+    def update_local_site(self, idx, newState):
+        self.mps_list[idx] = newState
+        # since the current site has changed,
+        # tensor F at the current site need to be updated.
+        self.F_list[idx] = None
+        # the current site has influence on the tensor L of all the sites on its right
+        for i in range(idx + 1, self.site_num + 1):
+            if self.L_list[i] is None:
                 break
-            else:
-                E_old = energy
+            self.L_list[i] = None
+        # on the tensor R of all the sites on its left
+        for i in range(idx - 1, 0, -1):
+            if self.R_list[i] is None:
+                break
+            self.R_list[i] = None
 
-    except Exception as e:
-        print(f"Error during DMRG calculation: {str(e)}")
-        raise
+    # head dummy site: idx == 0
+    # real sites : idx == 1~size
+    # last dummy site: idx == size+1
+    def left_canonicalize_at(self, idx):
+        if idx >= self.site_num:
+            return
+        site = self.mps_list[idx]
+        left, phy_dim, right = site.shape
+        u, s, v = svd_compress(site, "left", self.max_bond_dimension)
+        # update the MPS at idx
+        self.update_local_site(idx, newState=u.reshape((left, phy_dim, -1)))
+        # the next site is on the right of the current site
+        self.update_local_site(
+            idx + 1,
+            newState=np.tensordot(
+                np.dot(np.diag(s), v), self.mps_list[idx + 1], axes=[1, 0]
+            ),
+        )
+
+    def left_canonicalize_from(self, idx):
+        for i in range(idx, self.site_num):
+            self.left_canonicalize_at(i)
+
+    # head dummy site: idx == 0
+    # real sites : idx == 1~size
+    # last dummy site: idx == size+1
+    def right_canonicalize_at(self, idx):
+        if idx <= 1:
+            return
+        site = self.mps_list[idx]
+        left, phy_dim, right = site.shape
+        u, s, v = svd_compress(site, "right", self.max_bond_dimension)
+        # update the MPS at idx
+        self.update_local_site(idx, newState=v.reshape((-1, phy_dim, right)))
+        # the next site is on the left of the current site
+        self.update_local_site(
+            idx - 1,
+            np.tensordot(
+                self.mps_list[idx - 1].data, np.dot(u, np.diag(s)), axes=[2, 0]
+            ),
+        )
+
+    def right_canonicalize_from(self, idx):
+        for i in range(idx, 1, -1):
+            self.right_canonicalize_at(i)
+
+    def tensorF_at(self, idx):
+        """
+        calculate F for this site.
+        graphical representation (* for MPS and # for MPO,
+        numbers represents a set of imaginary bond dimensions used for comments below):
+                                  1 --*-- 5
+                                      | 4
+                                  2 --#-- 3
+                                      | 4
+                                  1 --*-- 5
+        :return the calculated F
+        """
+        if self.F_list[idx] is None:
+            # compute tensor F for idx
+            site = self.mps_list[idx]
+            operator = self.mpo_list[idx]
+            # site is (1,4,5)
+            # operator is (2,3,4,4)
+            # compute <site|operator
+            # contract 4, F is (1,5,2,3,4)
+            F = np.tensordot(site.conj(), operator, axes=[1, 2])
+            # compute <site|operator|site>
+            # contract 4
+            F = np.tensordot(F, site, axes=[4, 1])
+            # F is (1,5,2,3,1,5)
+            self.F_list[idx] = F
+        return self.F_list[idx]
+
+    def tensorL_at(self, idx):
+        """
+        calculate L in a recursive way
+        """
+        if self.L_list[idx] is None:
+            if idx <= 1:  # head dummy site
+                self.L_list[idx] = self.tensorF_at(idx)
+            else:
+                leftL = self.tensorL_at(idx - 1)
+                currentF = self.tensorF_at(idx)
+                """
+                do the contraction. 
+                graphical representation (* for MPS and # for MPO, numbers represents the index of the degree in tensor.shape):
+                  0 --*-- 1          0 --*-- 1                   0 --*-- 2                   0 --*-- 1          
+                      |                  |                           |                           |     
+                  2 --#-- 3     +    2 --#-- 3  --tensordot-->   4 --#-- 1    --transpose-->   2 --#-- 3                
+                      |                  |                           |                           |     
+                  4 --*-- 5          4 --*-- 5                   3 --*-- 5                   4 --*-- 5          
+
+                """
+                # tensordot (0,2,4,1,3,5) -transpose-> (0,1,2,3,4,5)
+                currentL = np.tensordot(
+                    leftL, currentF, axes=[[1, 3, 5], [0, 2, 4]]
+                ).transpose((0, 3, 1, 4, 2, 5))
+                self.L_list[idx] = currentL
+        return self.L_list[idx]
+
+    def tensorR_at(self, idx):
+        """
+        calculate R in a recursive way
+        """
+        if self.R_list[idx] is None:
+            if idx >= self.site_num:
+                self.R_list[idx] = self.tensorF_at(idx)
+            else:
+                rightR = self.tensorR_at(idx + 1)
+                currentF = self.tensorF_at(idx)
+                currentR = np.tensordot(
+                    currentF, rightR, axes=[[1, 3, 5], [0, 2, 4]]
+                ).transpose((0, 3, 1, 4, 2, 5))
+                self.R_list[idx] = currentR
+        return self.R_list[idx]
+
+    def variational_tensor_at(self, idx):
+        """
+        calculate the variational tensor for the ground state search. L * MPO * R
+        graphical representation (* for MPS and # for MPO):
+                                   --*--     --*--
+                                     |         |
+                                   --#----#----#--
+                                     |         |
+                                   --*--     --*--
+                                     L   MPO   R
+        """
+        left, phy_dim, right = self.mps_list[idx].shape
+        operator = self.mpo_list[idx]
+        """
+        do the contraction for L and MPO
+        graphical representation (* for MPS and # for MPO, numbers represents the index of the degree in tensor.shape):
+          0 --*-- 1                                    0 --*-- 1                
+              |                | 2                         |    | 6      
+          2 --#-- 3    +   0 --#-- 1  --tensordot-->   2 --#----#-- 5                 
+              |                | 3                         |    | 7      
+          4 --*-- 5                                    3 --*-- 4                
+              L                MPO                       left_middle
+        """
+        result = np.tensordot(self.tensorL_at(idx - 1), operator, axes=[3, 0])
+        """
+        do the contraction for L and MPO
+        graphical representation (* for MPS and # for MPO, numbers represents the index of the degree in tensor.shape):
+          0 --*-- 1             0 --*-- 1                   0 --*-- 1 8 --*-- 9      
+              |    | 6              |                           |    | 6  |   
+          2 --#----#-- 5   +    2 --#-- 3  --tensordot-->   2 --#----#----#-- 10       
+              |    | 7              |                           |    | 7  |   
+          3 --*-- 4             4 --*-- 5                   3 --*-- 4 11--*-- 12 
+            left_middle             R                       raw variational tensor
+        Note the dimension of 0, 2, 3, 9, 10, 12 are all 1, so the dimension could be reduced
+        """
+        result = np.tensordot(result, self.tensorR_at(idx + 1), axes=[5, 2])
+        result = result.reshape(  # (1,4,6,7,8,11)
+            left,
+            left,
+            phy_dim,
+            phy_dim,
+            right,
+            right,
+        ).transpose((0, 2, 4, 1, 3, 5))  # (1,6,8,4,7,11)
+        return result
+
+    def sweep_at(self, idx, direction="left"):
+        """
+        DMRG sweep
+        """
+        left_argument_set = ["l", "left"]
+        right_argument_set = ["r", "right"]
+
+        assert direction in (left_argument_set + right_argument_set)
+        left, phy_dim, right = self.mps_list[idx].shape
+        localDimension = left * phy_dim * right
+        # reshape the variational tensor to a square matrix
+        variationalTensor = self.variational_tensor_at(idx).reshape(
+            (localDimension, localDimension)
+        )
+        # solve for eigen values and vectors
+        eigVal, eigVec = np.linalg.eigh(variationalTensor)
+        # update current site
+        self.update_local_site(
+            idx, newState=eigVec[:, 0].reshape((left, phy_dim, right))
+        )
+        # normalization
+        if direction in left_argument_set:
+            self.left_canonicalize_at(idx)
+        else:
+            self.right_canonicalize_at(idx)
+        return eigVal[0]  # ground state energy
+
+    def kernel(self):
+        """
+        The main kernel for DMRG algorithm.
+        """
+        E_old = 0.0
+        print("Max bond dimension:", self.max_bond_dimension)
+        print("Max sweeps:", self.max_sweeps)
+        print("Error threshold:", self.error_threshold)
+        print("********* naive DMRG for spin model *********")
+        for sweep in range(self.max_sweeps):
+            print(f"DMRG sweep {sweep + 1}/{self.max_sweeps}")
+            print(">>>>>>>>>> sweep from left to right >>>>>>>>>>")
+            # left -> right sweep
+            for idx in range(1, self.site_num + 1):
+                E_new = self.sweep_at(idx, "left")
+                print(f"Left sweep at site {idx}, energy: {E_new:.6f}")
+            # do right sweep
+            for idx in range(self.site_num, 0, -1):
+                E_new = self.sweep_at(idx, "right")
+                print(f"Right sweep at site {idx}, energy: {E_new:.6f}")
+            # check convergence
+            if abs(E_new - E_old) < self.error_threshold:
+                print(f"DMRG converged in {sweep + 1} sweeps.")
+                print(f"Final energy: {E_new:.6f}")
+                return E_new
+            E_old = E_new
+        print(f"DMRG did not converge after {self.max_sweeps} sweeps.")
+        print(f"Final energy: {E_new:.6f}")
 
 
 if __name__ == "__main__":
-    main()
+    MAX_BOND_DIMENSION = 1000
+    MAX_SWEEPS = 20
+    PHY_DIM = 2
+    SITE_NUM = 10
+    ERROR_THRESHOLD = 1e-7
+    # Define local operators
+    identity = np.identity(2)
+    zeros = np.zeros((2, 2))
+    sz = np.array([[0.5, 0], [0, -0.5]])
+    sp = np.array([[0, 0], [1, 0]])  # S^+
+    sm = np.array([[0, 1], [0, 0]])  # S^-
+    # MPO tensors for each site in the chain
+    w_bulk = np.array(
+        [
+            [identity, zeros, zeros, zeros, zeros],
+            [sp, zeros, zeros, zeros, zeros],
+            [sm, zeros, zeros, zeros, zeros],
+            [sz, zeros, zeros, zeros, zeros],
+            [zeros, 0.5 * sm, 0.5 * sp, sz, identity],
+        ]
+    )
+    mpo = MPO(w_bulk, SITE_NUM)
+    mps = MPS(PHY_DIM, MAX_BOND_DIMENSION, SITE_NUM, ERROR_THRESHOLD)
+    dmrg = DMRG(
+        mpo=mpo.mpo,
+        mps=mps.mps,
+        max_bond_dimension=MAX_BOND_DIMENSION,
+        max_sweeps=MAX_SWEEPS,
+        error_threshold=ERROR_THRESHOLD,
+    )
+    dmrg.kernel()
