@@ -6,6 +6,8 @@ project(IDMRG LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+add_definitions(-DEIGEN_USE_THREADS)
+
 # Find OpenMP
 find_package(OpenMP REQUIRED)
 find_package(Threads REQUIRED)

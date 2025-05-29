@@ -2,7 +2,6 @@
 #ifndef MPO_HPP
 #define MPO_HPP
 
-#include "toolkit.hpp"
 #include <unsupported/Eigen/CXX11/Tensor>
 
 namespace DMRG {

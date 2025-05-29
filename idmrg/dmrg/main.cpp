@@ -3,7 +3,8 @@
 #include "src/mps.hpp"
 #include "src/operators.hpp"
 #include "src/toolkit.hpp"
-#include <iostream>
+#include "unsupported/Eigen/CXX11/src/Tensor/Tensor.h"
+#include <chrono>
 
 constexpr auto MAX_BOND_DIMENSION = 50;
 constexpr auto MAX_SWEEPS = 20;
@@ -33,9 +34,14 @@ const Eigen::Tensor<double, 4> creat_heisenberg_operator()
 }
 int main()
 {
+    auto start = std::chrono::high_resolution_clock::now();
     auto single_mpo = creat_heisenberg_operator();
     DMRG::MPO<> mpo(single_mpo, SITE_NUM);
     DMRG::MPS<> mps(PHY_DIM, MAX_BOND_DIMENSION, SITE_NUM);
     DMRG::DMRG<> dmrg(mpo.mpo_list_, mps.mps_list_, MAX_BOND_DIMENSION, MAX_SWEEPS, ERROR_THRESHOLD);
+
+    auto E = dmrg.kernel();
+
+    fmt::println("total time: {: .3f}s", (std::chrono::high_resolution_clock::now() - start).count() / 1e9);
     return 0;
 }

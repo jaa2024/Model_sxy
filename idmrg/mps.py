@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.sparse.linalg import svds
+import time
 
 
 class MPO:
@@ -59,70 +59,70 @@ class MPS:
         return self.mps_list
 
 
-# def svd_compress(tensor, direction, maxM):
-#     """
-#     Perform svd compression on the self.matrix. Used in the canonical process.
-#     :param direction: To which the matrix is compressed
-#     :return: The u,s,v value of the svd decomposition. Truncated if self.thresh is provided.
-#     """
-#     left_argument_set = ["l", "left"]
-#     right_argument_set = ["r", "right"]
-#     assert direction in (left_argument_set + right_argument_set)
-#     left, phy_dim, right = tensor.shape
-#     if direction in left_argument_set:
-#         u, s, v = np.linalg.svd(
-#             tensor.reshape(left * phy_dim, right), full_matrices=False
-#         )
-#     else:
-#         u, s, v = np.linalg.svd(
-#             tensor.reshape(left, phy_dim * right), full_matrices=False
-#         )
-#     if len(s) > maxM:  # do truncation
-#         return u[:, :maxM], s[:maxM], v[:maxM, :]
-#     return u, s, v
-
-
 def svd_compress(tensor, direction, maxM):
     """
-    Perform SVD compression with truncated singular values using sparse SVD for efficiency.
+    Perform svd compression on the self.matrix. Used in the canonical process.
+    :param direction: To which the matrix is compressed
+    :return: The u,s,v value of the svd decomposition. Truncated if self.thresh is provided.
     """
-    left_args = ["l", "left"]
-    right_args = ["r", "right"]
-    assert direction in (left_args + right_args)
-
+    left_argument_set = ["l", "left"]
+    right_argument_set = ["r", "right"]
+    assert direction in (left_argument_set + right_argument_set)
     left, phy_dim, right = tensor.shape
-    # Reshape tensor based on direction
-    if direction in left_args:
-        mat = tensor.reshape(left * phy_dim, right)
+    if direction in left_argument_set:
+        u, s, v = np.linalg.svd(
+            tensor.reshape(left * phy_dim, right), full_matrices=False
+        )
     else:
-        mat = tensor.reshape(left, phy_dim * right)
+        u, s, v = np.linalg.svd(
+            tensor.reshape(left, phy_dim * right), full_matrices=False
+        )
+    if len(s) > maxM:  # do truncation
+        return u[:, :maxM], s[:maxM], v[:maxM, :]
+    return u, s, v
 
-    m, n = mat.shape
-    min_dim = min(m, n)
 
-    if maxM < min_dim:
-        # Use sparse SVD with truncation
-        k = min(maxM, min_dim - 1)  # Ensure k < min_dim
-        if k <= 0:
-            u, s, vh = np.linalg.svd(mat, full_matrices=False)
-        else:
-            u, s, v = svds(mat, k=k, which="LM")
-            # svds returns s in ascending order, reverse for consistency
-            s = s[::-1]
-            u = u[:, ::-1]
-            v = v[:, ::-1]
-            vh = v.T.conj()  # Convert to row vectors
-    else:
-        # Fallback to full SVD if maxM >= min_dim
-        u, s, vh = np.linalg.svd(mat, full_matrices=False)
+# def svd_compress(tensor, direction, maxM):
+#     """
+#     Perform SVD compression with truncated singular values using sparse SVD for efficiency.
+#     """
+#     left_args = ["l", "left"]
+#     right_args = ["r", "right"]
+#     assert direction in (left_args + right_args)
 
-    # Truncate if necessary (mainly for full SVD case)
-    if len(s) > maxM:
-        u = u[:, :maxM]
-        s = s[:maxM]
-        vh = vh[:maxM, :]
+#     left, phy_dim, right = tensor.shape
+#     # Reshape tensor based on direction
+#     if direction in left_args:
+#         mat = tensor.reshape(left * phy_dim, right)
+#     else:
+#         mat = tensor.reshape(left, phy_dim * right)
 
-    return u, s, vh
+#     m, n = mat.shape
+#     min_dim = min(m, n)
+
+#     if maxM < min_dim:
+#         # Use sparse SVD with truncation
+#         k = min(maxM, min_dim - 1)  # Ensure k < min_dim
+#         if k <= 0:
+#             u, s, vh = np.linalg.svd(mat, full_matrices=False)
+#         else:
+#             u, s, v = svds(mat, k=k, which="LM")
+#             # svds returns s in ascending order, reverse for consistency
+#             s = s[::-1]
+#             u = u[:, ::-1]
+#             v = v[:, ::-1]
+#             vh = v.T.conj()  # Convert to row vectors
+#     else:
+#         # Fallback to full SVD if maxM >= min_dim
+#         u, s, vh = np.linalg.svd(mat, full_matrices=False)
+
+#     # Truncate if necessary (mainly for full SVD case)
+#     if len(s) > maxM:
+#         u = u[:, :maxM]
+#         s = s[:maxM]
+#         vh = vh[:maxM, :]
+
+#     return u, s, vh
 
 
 class DMRG:
@@ -246,7 +246,7 @@ class DMRG:
             # compute <site|operator|site>
             # contract 4
             F = np.tensordot(F, site, axes=[4, 1])
-            # F is (1,5,2,3,1,5)
+            # F is x
             self.F_list[idx] = F
         return self.F_list[idx]
 
@@ -263,11 +263,11 @@ class DMRG:
                 """
                 do the contraction. 
                 graphical representation (* for MPS and # for MPO, numbers represents the index of the degree in tensor.shape):
-                  0 --*-- 1          0 --*-- 1                   0 --*-- 2                   0 --*-- 1          
-                      |                  |                           |                           |     
+                  0 --*-- 1          0 --*-- 1                   0 --*-- 2                     0 --*-- 1          
+                      |                  |                           |                             |     
                   2 --#-- 3     +    2 --#-- 3  --tensordot-->   4 --#-- 1    --transpose-->   2 --#-- 3                
-                      |                  |                           |                           |     
-                  4 --*-- 5          4 --*-- 5                   3 --*-- 5                   4 --*-- 5          
+                      |                  |                           |                             |     
+                  4 --*-- 5          4 --*-- 5                   3 --*-- 5                     4 --*-- 5          
 
                 """
                 # tensordot (0,2,4,1,3,5) -transpose-> (0,1,2,3,4,5)
@@ -400,7 +400,7 @@ if __name__ == "__main__":
     MAX_BOND_DIMENSION = 50
     MAX_SWEEPS = 20
     PHY_DIM = 2
-    SITE_NUM = 20
+    SITE_NUM = 10
     ERROR_THRESHOLD = 1e-7
     # Define local operators
     identity = np.identity(2)
@@ -427,4 +427,6 @@ if __name__ == "__main__":
         max_sweeps=MAX_SWEEPS,
         error_threshold=ERROR_THRESHOLD,
     )
+    start = time.time()
     dmrg.kernel()
+    print("Time cost:", time.time() - start, "s")
