@@ -2,6 +2,7 @@
 #ifndef TOOLKIT_HPP
 #define TOOLKIT_HPP
 
+#include <cassert>
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <unsupported/Eigen/CXX11/Tensor>
@@ -23,10 +24,10 @@ template <typename T>
 void print_formatted(const T& value)
 {
     if constexpr (std::is_integral_v<T>) {
-        fmt::print("{:12}", value); // Zero-padded integers
+        fmt::print("{: 12}", value); // Zero-padded integers
     }
     else if constexpr (std::is_floating_point_v<T>) {
-        fmt::print("{:0.10f}", value);
+        fmt::print("{: 0.10f}", value);
     }
 }
 

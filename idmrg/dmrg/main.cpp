@@ -1,13 +1,17 @@
+#include "src/dmrg.hpp"
 #include "src/mpo.hpp"
+#include "src/mps.hpp"
 #include "src/operators.hpp"
 #include "src/toolkit.hpp"
 #include <iostream>
+
 constexpr auto MAX_BOND_DIMENSION = 50;
 constexpr auto MAX_SWEEPS = 20;
 constexpr auto PHY_DIM = 2;
-constexpr auto SITE_NUM = 5;
+constexpr auto SITE_NUM = 10;
 constexpr auto ERROR_THRESHOLD = 1e-7;
-int main()
+
+const Eigen::Tensor<double, 4> creat_heisenberg_operator()
 {
     const auto id = DMRG::Operator::Identity; // Identity operator for 2x2 matrices
     const auto zero = DMRG::Operator::Zero; // Zero operator for 2x2 matrices
@@ -25,7 +29,13 @@ int main()
     DMRG::Toolkit::assign_block<double>(single_mpo, 0.5 * sp, 4, 2);
     DMRG::Toolkit::assign_block<double>(single_mpo, sz, 4, 3);
     DMRG::Toolkit::assign_block<double>(single_mpo, id, 4, 4);
-    // DMRG::Toolkit::print_tensor(single_mpo);
+    return single_mpo;
+}
+int main()
+{
+    auto single_mpo = creat_heisenberg_operator();
     DMRG::MPO<> mpo(single_mpo, SITE_NUM);
+    DMRG::MPS<> mps(PHY_DIM, MAX_BOND_DIMENSION, SITE_NUM);
+    DMRG::DMRG<> dmrg(mpo.mpo_list_, mps.mps_list_, MAX_BOND_DIMENSION, MAX_SWEEPS, ERROR_THRESHOLD);
     return 0;
 }

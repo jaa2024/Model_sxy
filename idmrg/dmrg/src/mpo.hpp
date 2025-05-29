@@ -19,7 +19,8 @@ struct MPO {
                                 0 --#-- 1
                                     | 3
     */
-    MPO(Eigen::Tensor<T, 4>& single_mpo, const int size_num); // Default constructor
+    MPO() = delete; // Default constructor is deleted
+    MPO(Eigen::Tensor<T, 4>& single_mpo, const int size_num);
     std::vector<Eigen::Tensor<T, 4>> mpo_list_; // List of MPO tensors
     int site_num_ = 0; // Total number of sites
 }; // Class MPO
@@ -46,19 +47,12 @@ MPO<T>::MPO(Eigen::Tensor<T, 4>& single_mpo, const int size_num)
 
     // Build MPO list
     mpo_list_.reserve(site_num_);
-    mpo_list_.emplace_back(std::move(first_mpo));
+    mpo_list_.emplace_back(std::forward<Eigen::Tensor<T, 4>>(first_mpo));
 
     // Add middle MPOs (original tensor copies)
-    for (int i = 0; i < site_num_ - 2; ++i) {
-        mpo_list_.push_back(single_mpo);
-    }
 
-    mpo_list_.emplace_back(std::move(last_mpo));
-    fmt::print("mpo_first:\n");
-    Toolkit::print_tensor(mpo_list_[0]); // Print first MPO
-    fmt::print("mpo_last:\n");
-    Toolkit::print_tensor(mpo_list_[site_num_ - 1]); // Print last MPO
-    fmt::print("\n");
+    mpo_list_.insert(mpo_list_.end(), site_num_ - 2, std::move(single_mpo));
+    mpo_list_.emplace_back(std::forward<Eigen::Tensor<T, 4>>(last_mpo));
 }
 // Constructor implementation
 } // namespace DMRG
