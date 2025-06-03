@@ -6,6 +6,7 @@
 #include "toolkit.hpp"
 #include <Eigen/Dense>
 #include <cassert>
+#include <hptt.h>
 #include <optional>
 #include <unsupported/Eigen/CXX11/Tensor>
 #include <unsupported/Eigen/CXX11/ThreadPool>
@@ -131,27 +132,27 @@ DMRG<T>::DMRG(const std::vector<Eigen::Tensor<T, 4>>& mpo,
 }
 
 template <typename T>
-inline void DMRG<T>::update_local_site(const int idx, const Eigen::Tensor<T, 3>& newState)
+inline void DMRG<T>::update_local_site(int idx, const Eigen::Tensor<T, 3>& newState)
 {
     mps_list_[idx] = newState;
-    // since the current site has changed,
-    // tensor F at the current site need to be updated.
-    F_list_[idx] = std::nullopt;
-    // the current site has influence on the tensor L of all the sites on its right
-    for (int i = idx + 1; i < site_num_ + 1; ++i) {
-        if (!L_list_[i].has_value()) {
-            break; // if L_list[i] is not initialized, break the loop
-        }
-        L_list_[i] = std::nullopt; // reset L_list[i] to nullopt
+    F_list_[idx].reset();
+
+    for (int i = idx + 1; i <= site_num_; ++i) {
+        if (L_list_[i].has_value())
+            L_list_[i].reset();
+        else
+            break;
     }
-    // on the tensor R of all the sites on its left
-    for (int i = idx - 1; i > 0; --i) {
-        if (!R_list_[i].has_value()) {
-            break; // if R_list[i] is not initialized, break the loop
-        }
-        R_list_[i] = std::nullopt; // reset R_list[i] to nullopt
+    for (int i = idx - 1; i >= 0; --i) {
+        if (R_list_[i].has_value())
+            R_list_[i].reset();
+        else
+            break;
     }
 }
+
+// #define likely(x) __builtin_expect(!!(x), 1)
+// #define unlikely(x) __builtin_expect(!!(x), 0)
 
 // head dummy site: idx == 0
 // real sites : idx == 1~size
@@ -326,7 +327,12 @@ inline Eigen::Tensor<T, 6> DMRG<T>::tensorR_at(const int idx)
                                                      Eigen::IndexPair<int>(1, 0),
                                                      Eigen::IndexPair<int>(3, 2),
                                                      Eigen::IndexPair<int>(5, 4) });
-            Eigen::Tensor<T, 6> R = currentR.shuffle(Eigen::array<int, 6> { 0, 3, 1, 4, 2, 5 });
+            int perm[6] = { 0, 3, 1, 4, 2, 5 };
+            int size[6] = { currentR.dimension(0), currentR.dimension(1), currentR.dimension(2), currentR.dimension(3), currentR.dimension(4), currentR.dimension(5) };
+            // Eigen::Tensor<T, 6> R = currentR.shuffle(Eigen::array<int, 6> { 0, 3, 1, 4, 2, 5 });
+            Eigen::Tensor<T, 6> R = Eigen::Tensor<T, 6>(currentR.dimension(0), currentR.dimension(3), currentR.dimension(1), currentR.dimension(4), currentR.dimension(2), currentR.dimension(5));
+            auto plan = hptt::create_plan(perm, 6, 1.0, currentR.data(), size, NULL, 0.0, R.data(), NULL, hptt::ESTIMATE, 1);
+            plan->execute();
             R_list_[idx] = std::move(R);
         }
     }

@@ -43,5 +43,18 @@ int main()
     auto E = dmrg.kernel();
 
     fmt::println("total time: {: .3f}s", (std::chrono::high_resolution_clock::now() - start).count() / 1e9);
+
+    // // allocate tensors
+    // // Example dimensions for a 6D tensor
+    // constexpr int dim = 6;
+    // int perm[dim] = { 5, 2, 0, 4, 1, 3 };
+    // int size[dim] = { 48, 28, 48, 28, 28, 1 };
+    // double* A = new double[48 * 28 * 48 * 28 * 28 * 1];
+
+    // // create a plan (pointer)
+    // auto plan = hptt::create_plan(perm, dim, 1.0, A, size, NULL, 0.0, A, NULL, hptt::ESTIMATE, 16);
+
+    // // execute the transposition
+    // plan->execute();
     return 0;
 }
