@@ -7,7 +7,6 @@
 
 // C++ standard library
 #include <complex>
-#include <cstddef>
 #include <random>
 // Third-party libraries
 #include <fmt/core.h>

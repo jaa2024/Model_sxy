@@ -2,11 +2,10 @@
 #ifndef DAVIDSON_HPP
 #define DAVIDSON_HPP
 
-#include "linalg/matrix.hpp"
-#include "linalg/sparse_matrix.hpp"
+#include "matrix.hpp"
+#include "sparse_matrix.hpp"
 #include <algorithm>
 #include <chrono>
-#include <fstream>
 
 namespace linalg {
 
