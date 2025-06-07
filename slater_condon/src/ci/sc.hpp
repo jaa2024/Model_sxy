@@ -259,7 +259,7 @@ public:
     det_size_ = dets_.size();
   }
 
-  void kernel(integral::Integral<> &integral) {
+  void kernel(integral::Integral<> &integral, std::size_t n_roots = 1, std::size_t start_dim = 5) {
     struct Element {
       MKL_INT row;
       MKL_INT col;
@@ -345,9 +345,13 @@ public:
       return sparse_H * x;
     };
 
-    double result =
-        linalg::davidson_solver(matvec, diagonal_elements.data(), det_size_);
-    fmt::println("Eigenvalue: {}", result + integral.CoreE());
+    // std::vector<double> result =
+    //     linalg::davidson_solver(matvec, diagonal_elements.data(), det_size_, n_roots, start_dim);
+    std::vector<double> result =
+        linalg::davidson_solver_improved(matvec, diagonal_elements.data(), det_size_, n_roots, start_dim);
+    for (int n = 0; n < n_roots; ++n) {
+      fmt::println("  Eigenvalue {:>2}: {}", n + 1, result[n] + integral.CoreE());
+    }
 
     fmt::println("Davidson solver time: {} ms",
                  std::chrono::duration_cast<std::chrono::milliseconds>(
