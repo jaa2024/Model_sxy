@@ -43,7 +43,7 @@ svd_compress(const Eigen::Tensor<T, 3>& tensor, const std::string& direction,
         Eigen::array<Eigen::Index, 2> { (direction == "left") ? left * phy_dim : left, actualM });
 
     Eigen::Tensor<T, 1> S(actualM);
-    std::copy_n(svd.singularValues().data(), actualM, S.data());
+    S = Eigen::TensorMap<Eigen::Tensor<const T, 1>>(svd.singularValues().data(), actualM);
     Eigen::Tensor<T, 2> V = Eigen::TensorMap<Eigen::Tensor<T, 2>>(
         matrixV.data(),
         Eigen::array<Eigen::Index, 2> { actualM, (direction == "left") ? right : phy_dim * right });
