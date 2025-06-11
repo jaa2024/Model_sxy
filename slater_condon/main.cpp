@@ -8,6 +8,6 @@ int main()
 
     integral::Integral<> MO_INTEGRAL("../example/c2_cas88/FCIDUMP");
     ci::SlaterCondon<double> SC("../example/c2_cas88/electron_configurations.txt");
-    SC.kernel(MO_INTEGRAL, 6, 6);
+    SC.kernel(MO_INTEGRAL, 6, 200);
     return 0;
 }

@@ -143,7 +143,7 @@ Matrix<T> gramschmidt_incremental(const Matrix<T>& X, int freeze_cols)
             const std::vector<T>& col_j = Y.col(j);
 
             T denom = dot_(col_j, col_j);
-            if (std::abs(denom) < 1e-15)
+            if (std::abs(denom) < 1e-14)
                 continue;
 
             T coeff = dot_(col_i, col_j) / denom;
@@ -152,7 +152,7 @@ Matrix<T> gramschmidt_incremental(const Matrix<T>& X, int freeze_cols)
 
         // normalization
         double nrm = norm_(col_i);
-        if (nrm > 1e-13) {
+        if (nrm > 1e-7) {
             dot_(col_i, T(1.0 / nrm));
         }
 
@@ -166,8 +166,8 @@ template <typename Transformer, typename T = double>
 const std::vector<double> davidson_solver(Transformer transformer, const T* diagonal,
     std::size_t n_dim, std::size_t n_roots = 1,
     std::size_t start_dim = 5,
-    std::size_t max_iter = 100,
-    double residue_tol = 1e-6)
+    std::size_t max_iter = 1000,
+    double residue_tol = 1e-9)
 {
 
     if (start_dim < n_roots) {
@@ -181,16 +181,17 @@ const std::vector<double> davidson_solver(Transformer transformer, const T* diag
     for (std::size_t iter = 0; iter < max_iter; ++iter) {
         // project dim
         auto M = start_dim + iter * n_roots;
+        const bool do_full_ortho = (iter == 0) || (iter % 5 == 0);
         Matrix<T> orthonormal_subspace;
-        if (iter == 0) {
+        Ab_i.conservativeResize(n_dim, M);
+        if (do_full_ortho) {
             orthonormal_subspace = gramschmidt(search_space);
-            for (std::size_t j = 0; j < start_dim; j++) {
+            for (std::size_t j = 0; j < M; j++) {
                 auto vec = orthonormal_subspace.col(j);
                 Ab_i.setCol(j, transformer(vec));
             }
         }
         else {
-            Ab_i.conservativeResize(n_dim, M);
             orthonormal_subspace = gramschmidt_incremental(search_space, M - n_roots);
             for (std::size_t j = M - n_roots; j < M; j++) {
                 auto vec = orthonormal_subspace.col(j);
