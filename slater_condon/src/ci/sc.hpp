@@ -368,7 +368,8 @@ public:
             return sparse_H * x;
         };
 
-        std::vector<double> result = linalg::davidson_solver(matvec, diagonal_elements.data(), det_size_, n_roots, start_dim);
+        std::vector<double> result = linalg::davidson_solver(matvec, diagonal_elements, det_size_, n_roots, start_dim);
+        //std::vector<double> result = linalg::davidson_solver_s(matvec, diagonal_elements, det_size_, n_roots, start_dim);
         for (int n = 0; n < n_roots; ++n) {
             fmt::println("  Eigenvalue {:>2}: {}", n + 1, result[n] + integral.CoreE());
         }
