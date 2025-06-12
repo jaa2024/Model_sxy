@@ -164,7 +164,15 @@ Matrix<T> gramschmidt_incremental(const Matrix<T>& X, int freeze_cols)
 }
 
 template <typename T>
-Matrix<T> make_initial_pspace(const std::vector<T>& diag, std::size_t n_pspace, double front_ratio = 0.5)
+struct p_space {
+    std::size_t n_front;
+    // TODO: sparse matrix only need idx
+    // std::vector<std::size_t> idx;
+    Matrix<T> pspace;
+};
+
+template <typename T>
+p_space<T> make_initial_pspace(const std::vector<T>& diag, std::size_t n_pspace, double front_ratio = 0.5)
 {
     const std::size_t N = diag.size();
     if (n_pspace == 0 || n_pspace > N)
@@ -201,8 +209,8 @@ Matrix<T> make_initial_pspace(const std::vector<T>& diag, std::size_t n_pspace, 
     // generate the back unit basis matrix
     for (std::size_t k = 0; k < n_back; ++k)
         V(idx[k], n_front + k) = T(1);
-
-    return V;
+    fmt::println("{:>3}, {:>3} ", n_front, n_back);
+    return { n_front, V };
 }
 
 template <typename Transformer, typename T = double>
@@ -218,7 +226,8 @@ const std::vector<double> davidson_solver(Transformer transformer, const std::ve
             "start_dim should be greater than or equal to n_roots");
     }
     // initial guess
-    Matrix<T> search_space = make_initial_pspace(diagonal, n_pspace, 0.5);
+    const p_space<T> p_space = make_initial_pspace(diagonal, n_pspace, 0.9);
+    Matrix<T> search_space = p_space.pspace;
     // Matrix<T> search_space = Matrix<T>::identity(n_dim, n_pspace);
     Matrix<T> Ab_i = Matrix<T>::zero(n_dim, n_pspace);
     double residue_norm_n = n_roots;
@@ -265,7 +274,7 @@ const std::vector<double> davidson_solver(Transformer transformer, const std::ve
         Matrix<double> B = orthonormal_subspace.transpose().conjugate() * Ab_i;
         auto [eigenvalues, eigenvectors] = eigh(B);
 
-        std::vector<std::vector<T>> xi_n(n_roots, std::vector<T>(n_dim));
+        std::vector<std::vector<T>> xi_n(n_roots, std::vector<T>(n_dim, T(0)));
         std::vector<double> theta_n(n_roots);
         std::vector<std::uint8_t> has_converged(n_roots, 0);
 
@@ -288,9 +297,12 @@ const std::vector<double> davidson_solver(Transformer transformer, const std::ve
             }
 
             // update the search space
-            for (int i = 0; i < n_dim; ++i) {
+            for (int i = p_space.n_front; i < n_dim; ++i) {
                 xi_n[n][i] = residue_n[i] / (theta_n[n] - diagonal[i]);
             }
+            // for (int i = 0; i < n_dim; ++i) {
+            //     xi_n[n][i] = residue_n[i] / (theta_n[n] - diagonal[i]);
+            // }
             auto xi_norm = norm_(xi_n[n]);
             std::transform(xi_n[n].begin(), xi_n[n].end(), xi_n[n].begin(),
                 [xi_norm](T& val) { return val / xi_norm; });
@@ -308,7 +320,6 @@ const std::vector<double> davidson_solver(Transformer transformer, const std::ve
         for (int n = 0; n < n_roots; ++n) {
             search_space.setCol(M + n, xi_n[n]);
         }
-        
     }
     throw std::runtime_error("Davidson diagonalization failed");
 }
@@ -418,7 +429,6 @@ const std::vector<double> davidson_solver_s(Transformer transformer, const std::
         search_space = orthonormal_subspace;
         search_space.conservativeResize(n_dim, M + 1);
         search_space.setCol(M, xi_n_av);
-
     }
     throw std::runtime_error("Davidson diagonalization failed");
 }
